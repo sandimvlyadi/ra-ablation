@@ -19,7 +19,8 @@
   - Commit lokal: `63df280` (repo awal) dan `b877559` (aturan + antrean RQ0). Belum di-push.
   - **Antrean RQ0 diluncurkan 2026-11-11 00:54** dengan izin pengguna (log `runs/rq0.log`, berhenti dengan `kill -TERM -- -$(cat runs/rq0/queue.pid)`). Kalau PC mati, jalankan ulang perintah yang sama; run yang sudah selesai dilewati.
   - `code/src/ramscore/rq0.py` + `tests/test_rq0.py` ditulis (pytest 219 passed), di-commit lokal `b9e0dd6`.
-  - `rules/rq1_prespecification.md` disetujui pengguna dan di-commit lokal sebelum run RQ1 mana pun.
+  - `rules/rq1_prespecification.md` disetujui pengguna dan di-commit lokal (`4fccaab`) sebelum run RQ1 mana pun.
+  - `scripts/run_rq1.sh` (tahap 1, RQ1-01…06, 36 run, ±13 jam kasar) ditulis. Smoke test lulus 36/36, dan encoder E1 termuat dengan benar.
 
 ## Keputusan pengguna
 | Tanggal | Keputusan |
@@ -38,7 +39,7 @@
 ## Langkah berikutnya
 1. Tunggu antrean RQ0 selesai (±5,5 jam kasar). Cek dengan `bash scripts/run_rq0.sh`.
 2. Jalankan `cd code && uv run --group analysis python -m ramscore.rq0`, periksa uji reproduksi (kalau ada run yang ditandai, RQ1 ditahan), lalu salin laporannya ke `reports/rq0.md`.
-3. Pengguna meninjau draf aturan RQ1. Setelah disetujui: commit, lalu tulis `scripts/run_rq1.sh` tahap 1 (RQ1-01…06, ±14 jam kasar) dan smoke test. Tahap ini diluncurkan setelah RQ0 selesai, dengan izin.
+3. Setelah RQ0 selesai dan dengan izin: luncurkan `setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &` (±13 jam kasar).
 4. Paralel tanpa GPU: flag LP-FT (RQ1-17), lalu kode SSL baru / RQ2 sesuai prioritas.
 5. Push ke remote kapan pun pengguna memutuskan.
 

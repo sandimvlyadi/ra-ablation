@@ -60,6 +60,14 @@ uv run python -m ramscore.train --name rq0-01_resnet34_b2_f1.0_d0_s42 --out ../r
 | Ukur 1 epoch (100% label) | `uv run python -m ramscore.train --name ep1_<m> --out <scratch> --amp --n-boot 0 --model <m> --pretrained --head softmax --logit-adjust 1 --label-fraction 1.0 --seed 42 --epochs 1 --min-steps 0 --aug base --seed-aug` | `train.py: main()` | ResNet34 54 s (puncak 2,7 GB VRAM); ConvNeXt-Tiny 91 s (4,3 GB) → ±1,9× ResNet34; perkiraan kasar RQ0 ±5,5 jam | ✅ 2026-11-11 |
 | Jalankan / lanjutkan | `setsid nohup bash scripts/run_rq0.sh all >> runs/rq0.log 2>&1 < /dev/null &` | idem; `CONVNEXT=` memilih bobot RQ0-02 (default `convnext_tiny.fb_in1k`, sudah diunduh 2026-11-11) | `runs/rq0/rq0-0{1,2}_*/`, `runs/rq0/logs/`, `runs/rq0/queue.pid` | menunggu izin peluncuran |
 
+**RQ1 tahap 1** (aturan: `rules/rq1_prespecification.md`, commit 4fccaab). Arm RQ1-01…06, 36 run.
+
+| Langkah | Perintah | Kode | Output | Status |
+|---|---|---|---|---|
+| Status + sisa jam | `bash scripts/run_rq1.sh` | `scripts/run_rq1.sh: queue()`; flag per arm di `FLAGS` (ViT-S: `--layer-decay 0.85 --lr 1e-4 --warmup 0.1`; RQ1-04 `vit_small_patch16_224.augreg_in1k --pretrained`) | tabel arm / run selesai / jam tersisa (±13 jam kasar) | ✅ 2026-11-11 |
+| Smoke test | `OUT=<scratch> bash scripts/run_rq1.sh all --limit 640 --epochs 1 --min-steps 0 --workers 4` | idem → `ramscore.train`; `train.py: load_backbone()` | 36/36 `metrics.json`, 9,5 menit (berbagi GPU dengan RQ0); log: encoder E1 termuat, hanya `fc.*` / `head.*` yang baru | ✅ 2026-11-11 |
+| Jalankan / lanjutkan | `setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &` | idem; cek `sha256sum -c artifacts/SHA256SUMS` dulu | `runs/rq1/rq1-0*_*/`, `runs/rq1/logs/`, `runs/rq1/queue.pid` | menunggu RQ0 selesai + izin |
+
 ## 3. Pre-training SSL (RQ1)
 | Langkah | Perintah | Kode | Output | Status |
 |---|---|---|---|---|

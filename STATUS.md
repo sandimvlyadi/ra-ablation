@@ -40,8 +40,9 @@
 1. Tunggu antrean RQ0 selesai (±5,5 jam kasar). Cek dengan `bash scripts/run_rq0.sh`.
 2. Jalankan `cd code && uv run --group analysis python -m ramscore.rq0`, periksa uji reproduksi (kalau ada run yang ditandai, RQ1 ditahan), lalu salin laporannya ke `reports/rq0.md`.
 3. Setelah RQ0 selesai dan dengan izin: luncurkan `setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &` (±13 jam kasar).
-4. Paralel tanpa GPU: flag LP-FT (RQ1-17), lalu kode SSL baru / RQ2 sesuai prioritas.
-5. Push ke remote kapan pun pengguna memutuskan.
+4. Flag LP-FT sudah selesai (2026-11-11, belum di-commit). Adendum resep LP (lr linear probe) menunggu keputusan pengguna, lalu `run_rq1.sh` tahap 2 (RQ1-17a/b).
+5. Paralel tanpa GPU: kode SSL baru / RQ2 sesuai prioritas.
+6. Push ke remote kapan pun pengguna memutuskan.
 
 ## Pertanyaan terbuka untuk pengguna atau dosen
 - Verifikasi manusia untuk SLR-M (`/data/Smart-X/SLR-RA/slr-methods/verification/`) belum dikerjakan.

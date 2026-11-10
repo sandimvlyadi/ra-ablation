@@ -151,6 +151,15 @@ def load_backbone(net, path):
     return missing
 
 
+def load_full(net, path):
+    """Load a whole classifier checkpoint, head included (second stage of LP-FT, Kumar et al., 2022).
+
+    The checkpoint must come from the same backbone and head; any missing or extra key is an error.
+    """
+    state = torch.load(path, map_location='cpu')
+    net.load_state_dict(state.get('model', state), strict=True)
+
+
 def add_input_channels(net, extra=1):
     """Widen the first convolution; the new channels start at zero, so the initial encoder output is unchanged."""
     *parents, name = net.pretrained_cfg['first_conv'].split('.')

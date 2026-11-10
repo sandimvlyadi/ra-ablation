@@ -11,7 +11,7 @@
 | Langkah | Perintah | Kode | Output | Status |
 |---|---|---|---|---|
 | Membuat lingkungan | `uv sync --group dev --group analysis` | `pyproject.toml`, `uv.lock` | `code/.venv/` | ✅ 2026-11-11 |
-| Test | `uv run pytest -q` | `code/tests/test_*.py` | 219 passed | ✅ 2026-11-11 |
+| Test | `uv run pytest -q` | `code/tests/test_*.py` | 230 passed | ✅ 2026-11-11 |
 | Cek artefak encoder | `cd ../artifacts && sha256sum -c SHA256SUMS` | — | OK per file | ✅ |
 | Cek ROI RheumaVIT | `cd ../data/derived && sha256sum -c ../../artifacts/RHEUMAVIT_ROI_SHA256SUMS` (salinan di git) | — | OK per file | ✅ |
 | (Hanya bila ROI hilang) buat ulang ROI RheumaVIT | `uv run python -m ramscore.rheumavit --src <folder AIRI asli> --out ../data/derived/rheumavit` | `rheumavit.py: main()` → ROI 13 sendi + `manifest.csv` | `data/derived/rheumavit/` | ✅ (kode lama) |
@@ -94,3 +94,4 @@ uv run python -m ramscore.train --name rq0-01_resnet34_b2_f1.0_d0_s42 --out ../r
 | Tanggal | Flag / modul | File : fungsi | Dipakai oleh arm | Test |
 |---|---|---|---|---|
 | 2026-11-11 | modul `rq0.py` | `rq0.py: analyse(), reproduction(), run_summary(), verdict(), report()` | RQ0-01, RQ0-02 | `tests/test_rq0.py` (10) |
+| 2026-11-11 | `--freeze-backbone` kini boleh dengan `--pretrained` (linear probe ImageNet); flag baru `--keep-head` (dengan `--init-from`: muat checkpoint lengkap termasuk kepala, tahap 2 LP-FT) | `train.py: check_init_args()`, `main()`; `models.py: load_full()` | RQ1-17a–d | `tests/test_rq1.py` (11); smoke LP → LP-FT: backbone LP = ImageNet persis, LP-FT mengubah backbone |

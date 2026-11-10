@@ -35,7 +35,7 @@ from .data import (AUGMENTATIONS, NATIVE_SCORES, BEDataset, RotatingZeroSampler,
                    undersample_zero)
 from .metrics import bootstrap_ci, compute_metrics
 from .models import (HEADS, Criterion, add_input_channels, build_model, decode, expected_grade, freeze_backbone,
-                     load_backbone, monotonic_penalty)
+                     load_backbone, load_full, monotonic_penalty)
 
 DEFAULT_ROOT = '/data/Smart-X/tesis-fix/dataset/RAM-H1200-v1/SvdH_Scoring/SvdH_BE_Scoring'
 
@@ -66,7 +66,10 @@ def get_args(argv=None):
                    help='Fall of the expected grade that goes unpenalised, in grade positions')
     p.add_argument('--pair-batch', type=int, default=16, help='Visit pairs per step, on top of the labelled batch')
     p.add_argument('--init-from', help='Checkpoint whose encoder initialises the model (classifier is reset)')
-    p.add_argument('--freeze-backbone', action='store_true', help='Train only the classifier (needs --init-from)')
+    p.add_argument('--freeze-backbone', action='store_true',
+                   help='Train only the classifier (linear probe); needs --init-from or --pretrained')
+    p.add_argument('--keep-head', action='store_true',
+                   help='With --init-from: load the whole checkpoint, classifier included (LP-FT stage 2, RQ1-17)')
     p.add_argument('--label-fraction', type=float, default=1.0, help='Patient-level fraction of training labels')
     p.add_argument('--fraction-seed', type=int, default=0)
     p.add_argument('--image-size', type=int, default=224)
@@ -117,6 +120,14 @@ def make_loader(ds, args, train, generator):
                       persistent_workers=args.workers > 0, generator=generator, worker_init_fn=worker_init)
 
 
+def check_init_args(args):
+    """Linear probe needs pre-trained weights to freeze; LP-FT stage 2 (--keep-head) fine-tunes a whole checkpoint."""
+    if args.freeze_backbone and not (args.init_from or args.pretrained):
+        raise SystemExit('--freeze-backbone needs --init-from or --pretrained')
+    if args.keep_head and (not args.init_from or args.freeze_backbone or args.mask_root):
+        raise SystemExit('--keep-head needs --init-from and cannot be combined with --freeze-backbone or --mask-root')
+
+
 def check_pair_args(args):
     """The penalty is defined on the softmax head and tested only with the plain E9 recipe."""
     if args.pair_weight and (args.head != 'softmax' or args.levels != 5 or args.mask_root or args.freeze_backbone
@@ -163,8 +174,7 @@ def predict(net, loader, head, device, score_values):
 
 def main(argv=None):
     args = get_args(argv)
-    if args.freeze_backbone and not args.init_from:
-        raise SystemExit('--freeze-backbone needs --init-from')
+    check_init_args(args)
     if args.undersample_zero != 'off' and (args.class_weight or args.oversample or args.logit_adjust
                                            or args.freeze_backbone):
         raise SystemExit('--undersample-zero cannot be combined with --class-weight, --oversample, --logit-adjust '
@@ -203,7 +213,10 @@ def main(argv=None):
     (run_dir / 'args.json').write_text(json.dumps(vars(args), indent=2))
     num_classes = len(score_values)
     net = build_model(args.model, num_classes, args.head, args.pretrained)
-    if args.init_from:
+    if args.init_from and args.keep_head:
+        load_full(net, args.init_from)
+        print(f'Whole model, classifier included, from {args.init_from}')
+    elif args.init_from:
         print(f'Encoder from {args.init_from}; fresh classifier: {load_backbone(net, args.init_from)}')
     if args.mask_root:
         add_input_channels(net)

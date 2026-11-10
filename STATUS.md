@@ -36,12 +36,13 @@
 | 2026-11-11 | Holm RQ1 per sub-pertanyaan (F1 vs ImageNet, F2 antar-metode, F3 modifikasi, F4 strategi fine-tuning, F5 prio B), bukan satu keluarga ±48 kontras; lihat `rules/rq1_prespecification.md` |
 | 2026-11-11 | ImageNet ViT-S (RQ1-04, LP/LP-FT ViT) memakai `vit_small_patch16_224.augreg_in1k`, bukan in21k_ft_in1k (E2/E6), supaya baseline ImageNet-1k setara dengan ResNet34/ConvNeXt; diunduh ke cache HF |
 | 2026-11-11 | RQ1-17: lr linear probe dipilih di validasi dari {1e-4, 1e-3, 1e-2} (10% d0 s42, ImageNet ResNet34); tahap 2 LP-FT memakai resep FT penuh (lr 1e-4 / LLRD ViT) |
+| 2026-11-11 | Hasil tuning adendum 1 (validasi saja): lr linear probe = **1e-2** (val BACC4 0,382 vs 0,364 @1e-3 dan 0,330 @1e-4); tepi atas grid, grid tidak diperluas |
 
 ## Langkah berikutnya
 1. Tunggu antrean RQ0 selesai (±5,5 jam kasar). Cek dengan `bash scripts/run_rq0.sh`.
 2. Jalankan `cd code && uv run --group analysis python -m ramscore.rq0`, periksa uji reproduksi (kalau ada run yang ditandai, RQ1 ditahan), lalu salin laporannya ke `reports/rq0.md`.
 3. Setelah RQ0 selesai dan dengan izin: luncurkan `setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &` (±13 jam kasar).
-4. RQ1-17: flag LP-FT (`93a1918`) dan adendum 1 (`e05125e`; lr probe dipilih di validasi, tahap 2 LP-FT memakai resep FT penuh) sudah di-commit. `run_rq1.sh` punya tahap `tune17` dan `lp17` (smoke lulus). Berikutnya: dengan izin, jalankan `tune17` (3 run, ±20 menit), pilih lr dari BACC4 validasi, catat, lalu `LP_LR=<lr> ... lp17` (±3,8 jam).
+4. RQ1-17: flag LP-FT (`93a1918`), adendum 1 (`e05125e`), dan tuning lr selesai (lr probe = 1e-2, 2026-11-11). Berikutnya, dengan izin: `LP_LR=1e-2 setsid nohup bash scripts/run_rq1.sh lp17 >> runs/rq1.log 2>&1 < /dev/null &` (12 run, ±3,8 jam kasar).
 5. Paralel tanpa GPU: kode SSL baru / RQ2 sesuai prioritas.
 6. Push ke remote kapan pun pengguna memutuskan.
 

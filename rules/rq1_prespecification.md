@@ -151,4 +151,12 @@ Ditulis dan di-commit sebelum run LP mana pun. Keputusan pengguna pada 2026-11-1
 
 **3. Biaya (kasar).** RQ1-17a/b (ImageNet): 6 run LP + 6 run FT ≈ 3 jam. RQ1-17c/d setara, tergantung backbone SSL terbaik.
 
-**lr linear probe terpilih:** *(diisi setelah 3 run tuning, sebelum run RQ1-17 pertama)*
+**lr linear probe terpilih (2026-11-11): 1e-2.** Diisi setelah 3 run tuning, sebelum run RQ1-17 pertama. Hanya validasi yang dibaca. BACC4 validasi pada checkpoint pilihan QWK:
+
+| lr | Val BACC4 | Val QWK | Epoch terpilih |
+|---|---|---|---|
+| 1e-4 | 0,330 | 0,109 | 8 |
+| 1e-3 | 0,364 | 0,098 | 0 |
+| 1e-2 | 0,382 | 0,218 | 12 |
+
+1e-2 berada di tepi atas grid, jadi lr yang lebih besar mungkin lebih baik lagi. Grid tidak diperluas karena sudah dikunci sebelum tuning. Batasan ini dicatat di laporan.

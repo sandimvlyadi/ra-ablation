@@ -18,7 +18,8 @@
   - Catatan: setelah 1 epoch, ConvNeXt-Tiny (in12k) masih memprediksi semua sendi sebagai grade 0 (val QWK 0). Satu epoch belum informatif, tetapi resep tanpa warmup mungkin kurang cocok untuk ConvNeXt. Sesuai draf aturan, resep tidak disetel ulang.
   - Commit lokal: `63df280` (repo awal) dan `b877559` (aturan + antrean RQ0). Belum di-push.
   - **Antrean RQ0 diluncurkan 2026-11-11 00:54** dengan izin pengguna (log `runs/rq0.log`, berhenti dengan `kill -TERM -- -$(cat runs/rq0/queue.pid)`). Kalau PC mati, jalankan ulang perintah yang sama; run yang sudah selesai dilewati.
-  - `code/src/ramscore/rq0.py` + `tests/test_rq0.py` ditulis (pytest 219 passed), **belum di-commit**.
+  - `code/src/ramscore/rq0.py` + `tests/test_rq0.py` ditulis (pytest 219 passed), di-commit lokal `b9e0dd6`.
+  - `rules/rq1_prespecification.md` disetujui pengguna dan di-commit lokal sebelum run RQ1 mana pun.
 
 ## Keputusan pengguna
 | Tanggal | Keputusan |
@@ -31,12 +32,15 @@
 | 2026-11-11 | Ukuran sampel tetap 3 seed + 3 draw per arm (6 run), untuk semua RQ |
 | 2026-11-11 | Monitor checkpoint tetap QWK validasi, untuk semua RQ |
 | 2026-11-11 | Commit awal hanya lokal (tanpa push) |
+| 2026-11-11 | Holm RQ1 per sub-pertanyaan (F1 vs ImageNet, F2 antar-metode, F3 modifikasi, F4 strategi fine-tuning, F5 prio B), bukan satu keluarga ±48 kontras; lihat `rules/rq1_prespecification.md` |
+| 2026-11-11 | ImageNet ViT-S (RQ1-04, LP/LP-FT ViT) memakai `vit_small_patch16_224.augreg_in1k`, bukan in21k_ft_in1k (E2/E6), supaya baseline ImageNet-1k setara dengan ResNet34/ConvNeXt; diunduh ke cache HF |
 
 ## Langkah berikutnya
 1. Tunggu antrean RQ0 selesai (±5,5 jam kasar). Cek dengan `bash scripts/run_rq0.sh`.
 2. Jalankan `cd code && uv run --group analysis python -m ramscore.rq0`, periksa uji reproduksi (kalau ada run yang ditandai, RQ1 ditahan), lalu salin laporannya ke `reports/rq0.md`.
-3. Paralel tanpa GPU: tulis aturan dan kode RQ1 / RQ2 prioritas A sesuai `docs/PLAN_RQ.md` (RQ1 flag-ada: RQ1-01…06; RQ2 flag-ada: RQ2-01…08).
-4. Push ke remote kapan pun pengguna memutuskan.
+3. Pengguna meninjau draf aturan RQ1. Setelah disetujui: commit, lalu tulis `scripts/run_rq1.sh` tahap 1 (RQ1-01…06, ±14 jam kasar) dan smoke test. Tahap ini diluncurkan setelah RQ0 selesai, dengan izin.
+4. Paralel tanpa GPU: flag LP-FT (RQ1-17), lalu kode SSL baru / RQ2 sesuai prioritas.
+5. Push ke remote kapan pun pengguna memutuskan.
 
 ## Pertanyaan terbuka untuk pengguna atau dosen
 - Verifikasi manusia untuk SLR-M (`/data/Smart-X/SLR-RA/slr-methods/verification/`) belum dikerjakan.

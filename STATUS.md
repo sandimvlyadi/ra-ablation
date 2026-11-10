@@ -16,7 +16,9 @@
   - `scripts/run_rq0.sh` ditulis. Smoke test di scratchpad lulus: 12/12 run dengan `metrics.json`.
   - Ukuran 1 epoch (100% label): ResNet34 54 s, ConvNeXt-Tiny 91 s (±1,9×, VRAM 4,3 GB). Perkiraan RQ0 **±5,5 jam (kasar)**, naik dari ±4 jam di `PLAN_RQ.md`.
   - Catatan: setelah 1 epoch, ConvNeXt-Tiny (in12k) masih memprediksi semua sendi sebagai grade 0 (val QWK 0). Satu epoch belum informatif, tetapi resep tanpa warmup mungkin kurang cocok untuk ConvNeXt. Sesuai draf aturan, resep tidak disetel ulang.
-- **Belum ada run sungguhan.**
+  - Commit lokal: `63df280` (repo awal) dan `b877559` (aturan + antrean RQ0). Belum di-push.
+  - **Antrean RQ0 diluncurkan 2026-11-11 00:54** dengan izin pengguna (log `runs/rq0.log`, berhenti dengan `kill -TERM -- -$(cat runs/rq0/queue.pid)`). Kalau PC mati, jalankan ulang perintah yang sama; run yang sudah selesai dilewati.
+  - `code/src/ramscore/rq0.py` + `tests/test_rq0.py` ditulis (pytest 219 passed), **belum di-commit**.
 
 ## Keputusan pengguna
 | Tanggal | Keputusan |
@@ -31,9 +33,10 @@
 | 2026-11-11 | Commit awal hanya lokal (tanpa push) |
 
 ## Langkah berikutnya
-1. Minta izin, lalu luncurkan antrean RQ0 (12 run, ±5,5 jam kasar): `setsid nohup bash scripts/run_rq0.sh all >> runs/rq0.log 2>&1 < /dev/null &`.
-2. Paralel tanpa GPU: tulis `rq0.py` (analisis + uji reproduksi vs E8), lalu kode RQ1 / RQ2 sesuai prioritas di `docs/PLAN_RQ.md`.
-3. Push ke remote kapan pun pengguna memutuskan.
+1. Tunggu antrean RQ0 selesai (±5,5 jam kasar). Cek dengan `bash scripts/run_rq0.sh`.
+2. Jalankan `cd code && uv run --group analysis python -m ramscore.rq0`, periksa uji reproduksi (kalau ada run yang ditandai, RQ1 ditahan), lalu salin laporannya ke `reports/rq0.md`.
+3. Paralel tanpa GPU: tulis aturan dan kode RQ1 / RQ2 prioritas A sesuai `docs/PLAN_RQ.md` (RQ1 flag-ada: RQ1-01…06; RQ2 flag-ada: RQ2-01…08).
+4. Push ke remote kapan pun pengguna memutuskan.
 
 ## Pertanyaan terbuka untuk pengguna atau dosen
 - Verifikasi manusia untuk SLR-M (`/data/Smart-X/SLR-RA/slr-methods/verification/`) belum dikerjakan.

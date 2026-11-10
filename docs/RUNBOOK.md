@@ -11,7 +11,7 @@
 | Langkah | Perintah | Kode | Output | Status |
 |---|---|---|---|---|
 | Membuat lingkungan | `uv sync --group dev --group analysis` | `pyproject.toml`, `uv.lock` | `code/.venv/` | ✅ 2026-11-11 |
-| Test | `uv run pytest -q` | `code/tests/test_*.py` | 209 passed | ✅ 2026-11-11 |
+| Test | `uv run pytest -q` | `code/tests/test_*.py` | 219 passed | ✅ 2026-11-11 |
 | Cek artefak encoder | `cd ../artifacts && sha256sum -c SHA256SUMS` | — | OK per file | ✅ |
 | Cek ROI RheumaVIT | `cd ../data/derived && sha256sum -c ../../artifacts/RHEUMAVIT_ROI_SHA256SUMS` (salinan di git) | — | OK per file | ✅ |
 | (Hanya bila ROI hilang) buat ulang ROI RheumaVIT | `uv run python -m ramscore.rheumavit --src <folder AIRI asli> --out ../data/derived/rheumavit` | `rheumavit.py: main()` → ROI 13 sendi + `manifest.csv` | `data/derived/rheumavit/` | ✅ (kode lama) |
@@ -79,9 +79,10 @@ uv run python -m ramscore.train --name rq0-01_resnet34_b2_f1.0_d0_s42 --out ../r
 | Langkah | Perintah | Kode | Output | Status |
 |---|---|---|---|---|
 | Kontras arm vs pembanding (bootstrap pasien berpasangan, run diambil ulang, Holm) | 🛠 `uv run --group analysis python -m ramscore.rq<n>` (pola `e8.py: analyse()`) | `compare.py: load_runs()`, `bootstrap()`, `compare()`, `holm()`, `to_markdown()` | 🛠 `runs/rq<n>_analysis/report.md` + `.json`, disalin ke `reports/` | 🛠 |
+| RQ0: kontras primer + uji reproduksi vs E8 | `uv run --group analysis python -m ramscore.rq0 [--e8 <runs/e8 lama>]` | `rq0.py: analyse()` (memakai `e6abl.paired/contrast/add_holm`, `e7.prediction_stats`), `reproduction()`, `verdict()`, `report()` | `runs/rq0_analysis/report.md` + `rq0.json` (salin ke `reports/` setelah antrean selesai) | ✅ kode + 10 test (2026-11-11); menunggu run |
 | Kontras ad hoc dari CLI | `uv run python -m ramscore.compare <baseline> <arm…> --pattern '../runs/rq<n>/{}_*_f1.0_*' --out <file>` | `compare.py: main()` | `<file>.json`, `<file>.md` | ✅ (kode lama) |
 
 ## 6. Flag dan modul baru (diisi saat dibuat)
 | Tanggal | Flag / modul | File : fungsi | Dipakai oleh arm | Test |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| 2026-11-11 | modul `rq0.py` | `rq0.py: analyse(), reproduction(), run_summary(), verdict(), report()` | RQ0-01, RQ0-02 | `tests/test_rq0.py` (10) |

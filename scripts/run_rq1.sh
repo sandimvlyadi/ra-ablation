@@ -10,7 +10,9 @@
 # The queue checks the encoder sha256 sums first and writes its session id to <OUT>/queue.pid;
 # stop it with kill -TERM -- -$(cat runs/rq1/queue.pid).
 # Usage: bash scripts/run_rq1.sh            status table (runs done, rough hours left)
-#        setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &
+#        setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &      stage 1 (RQ1-01..06)
+#        ... run_rq1.sh tune17                 addendum 1: 3 linear-probe lr runs (pick on validation)
+#        ... LP_LR=<lr> run_rq1.sh lp17        RQ1-17a (LP) + RQ1-17b (LP-FT), ImageNet ResNet34
 # Smoke test: OUT=/tmp/rq1 bash scripts/run_rq1.sh all --limit 640 --epochs 1 --min-steps 0
 # MINUTES are rough: ResNet34 from E3, ViT-S from E2 medians.
 set -uo pipefail
@@ -38,25 +40,33 @@ declare -A FLAGS=(
 declare -A MINUTES=([resnet34_0.1]=7 [resnet34_1.0]=31 [vits_0.1]=10 [vits_1.0]=40)
 
 PLAN=""
-train() {   # arm, fraction, draw, seed; a failure is reported and the queue goes on
-    local arm=$1 frac=$2 draw=$3 seed=$4
-    local name="${arm}_${TAGNAME[${arm}]}_b2_f${frac}_d${draw}_s${seed}"
+run() {   # name, minutes, then the arm's train.py flags; a failure is reported and the queue goes on
+    local name=$1 minutes=$2
+    shift 2
     if [[ -n "${PLAN}" ]]; then
-        echo "${arm} $([[ -f "${OUT}/${name}/metrics.json" ]] && echo 1 || echo 0) ${MINUTES[${TAGNAME[${arm}]%%_*}_${frac}]}"
+        echo "${name%%_*} $([[ -f "${OUT}/${name}/metrics.json" ]] && echo 1 || echo 0) ${minutes}"
         return 0
     fi
     [[ -f "${OUT}/${name}/metrics.json" ]] && return 0
     rm -rf "${OUT:?}/${name}"
     echo "$(date '+%F %T') [$(compgen -G "${OUT}/rq1-*/metrics.json" | wc -l) done] ${name}"
     local t0=${SECONDS}
-    # shellcheck disable=SC2086  # FLAGS holds several words on purpose
-    if ! uv run python -m ramscore.train --name "${name}" --out "${OUT}" --amp --n-boot 0 ${FLAGS[${arm}]} \
-        --head softmax --logit-adjust 1 --label-fraction "${frac}" --fraction-seed "${draw}" --seed "${seed}" \
-        --epochs 50 --min-steps 2000 --aug base --seed-aug "${EXTRA[@]}" > "${OUT}/logs/${name}.log" 2>&1; then
+    if ! uv run python -m ramscore.train --name "${name}" --out "${OUT}" --amp --n-boot 0 "$@" \
+        --head softmax --logit-adjust 1 --epochs 50 --min-steps 2000 --aug base --seed-aug "${EXTRA[@]}" \
+        > "${OUT}/logs/${name}.log" 2>&1; then
         echo "FAILED ${name} (see ${OUT}/logs/${name}.log); rerun the script to retry" >&2
         return 1
     fi
     echo "$(date '+%F %T') finished ${name} in $(( (SECONDS - t0) / 60 )) min"
+}
+
+design() { echo --label-fraction "$1" --fraction-seed "$2" --seed "$3"; }
+
+train() {   # stage-1 arm, fraction, draw, seed
+    local arm=$1 frac=$2 draw=$3 seed=$4
+    # shellcheck disable=SC2046,SC2086  # FLAGS and design() hold several words on purpose
+    run "${arm}_${TAGNAME[${arm}]}_b2_f${frac}_d${draw}_s${seed}" "${MINUTES[${TAGNAME[${arm}]%%_*}_${frac}]}" \
+        ${FLAGS[${arm}]} $(design "${frac}" "${draw}" "${seed}")
 }
 
 queue() {
@@ -65,16 +75,59 @@ queue() {
     for seed in 42 1337 2026; do for arm in "${ARMS[@]}"; do train "${arm}" 1.0 0 "${seed}"; done; done
 }
 
+# Addendum 1: linear-probe lr on validation (ImageNet ResNet34, 10% d0 s42), then RQ1-17a (LP) and RQ1-17b (LP-FT,
+# stage 2 from the 17a run of the same design, full fine-tune recipe). LP has no LLRD and no warm-up.
+tune17() {
+    local lr
+    for lr in 1e-4 1e-3 1e-2; do
+        # shellcheck disable=SC2046
+        run "rq1-17tune_lr${lr}_resnet34_imagenet_lp_b2_f0.1_d0_s42" 7 --model resnet34 --pretrained --freeze-backbone \
+            --lr "${lr}" $(design 0.1 0 42)
+    done
+}
+
+lp17_one() {   # fraction, draw, seed
+    local frac=$1 draw=$2 seed=$3 tag="b2_f$1_d$2_s$3"
+    local lp="rq1-17a_resnet34_imagenet_lp_${tag}"
+    # shellcheck disable=SC2046
+    run "${lp}" "${MINUTES[resnet34_${frac}]}" --model resnet34 --pretrained --freeze-backbone --lr "${LP_LR}" \
+        $(design "${frac}" "${draw}" "${seed}") || return 1
+    if [[ -z "${PLAN}" && ! -f "${OUT}/${lp}/model_best.pt" ]]; then
+        echo "SKIPPED rq1-17b ${tag}: ${lp}/model_best.pt missing" >&2
+        return 1
+    fi
+    # shellcheck disable=SC2046
+    run "rq1-17b_resnet34_imagenet_lpft_${tag}" "${MINUTES[resnet34_${frac}]}" --model resnet34 \
+        --init-from "${OUT}/${lp}/model_best.pt" --keep-head $(design "${frac}" "${draw}" "${seed}")
+}
+
+lp17() {
+    local draw seed
+    for draw in 0 1 2; do lp17_one 0.1 "${draw}" 42; done
+    for seed in 42 1337 2026; do lp17_one 1.0 0 "${seed}"; done
+}
+
+table() { awk '{ n[$1]++; d[$1] += $2; if (!$2) m[$1] += $3 } END { printf "%-12s %10s %10s\n", "arm", "runs done", "hours left"; for (a in n) printf "%-12s %5d/%-4d %10.1f\n", a, d[a], n[a], m[a] / 60 }' | sort; }
+
 if [[ -z "${STAGE}" ]]; then
     PLAN=1
+    LP_LR="${LP_LR:-x}"
     echo "OUT=${OUT}  (hours are rough)"
-    queue | awk '{ n[$1]++; d[$1] += $2; if (!$2) m[$1] += $3 } END { printf "%-10s %10s %10s\n", "arm", "runs done", "hours left"; for (a in n) printf "%-10s %5d/%-4d %10.1f\n", a, d[a], n[a], m[a] / 60 }' | sort
+    { queue; tune17; lp17; } | table
     exit 0
 fi
-[[ "${STAGE}" == all ]] || { echo "unknown stage ${STAGE}; use: all" >&2; exit 1; }
+case "${STAGE}" in
+    all|tune17) ;;
+    lp17) [[ -n "${LP_LR:-}" ]] || { echo "lp17 needs the lr chosen in addendum 1: LP_LR=<lr> bash scripts/run_rq1.sh lp17" >&2; exit 1; } ;;
+    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17" >&2; exit 1 ;;
+esac
 (cd "${ROOT}/artifacts" && sha256sum --quiet -c SHA256SUMS) || { echo "encoder checksums failed; queue not started" >&2; exit 1; }
 mkdir -p "${OUT}/logs"
 ps -o sid= -p $$ | tr -d " " > "${OUT}/queue.pid"
-echo "$(date '+%F %T') RQ1 stage 1 started (pid $$)"
-queue
-echo "$(date '+%F %T') RQ1 stage 1 finished: $(compgen -G "${OUT}/rq1-*/metrics.json" | wc -l) runs with metrics.json"
+echo "$(date '+%F %T') RQ1 ${STAGE} started (pid $$)"
+case "${STAGE}" in
+    all) queue ;;
+    tune17) tune17 ;;
+    lp17) lp17 ;;
+esac
+echo "$(date '+%F %T') RQ1 ${STAGE} finished: $(compgen -G "${OUT}/rq1-*/metrics.json" | wc -l) runs with metrics.json"

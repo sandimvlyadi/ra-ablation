@@ -67,6 +67,8 @@ uv run python -m ramscore.train --name rq0-01_resnet34_b2_f1.0_d0_s42 --out ../r
 | Status + sisa jam | `bash scripts/run_rq1.sh` | `scripts/run_rq1.sh: queue()`; flag per arm di `FLAGS` (ViT-S: `--layer-decay 0.85 --lr 1e-4 --warmup 0.1`; RQ1-04 `vit_small_patch16_224.augreg_in1k --pretrained`) | tabel arm / run selesai / jam tersisa (±13 jam kasar) | ✅ 2026-11-11 |
 | Smoke test | `OUT=<scratch> bash scripts/run_rq1.sh all --limit 640 --epochs 1 --min-steps 0 --workers 4` | idem → `ramscore.train`; `train.py: load_backbone()` | 36/36 `metrics.json`, 9,5 menit (berbagi GPU dengan RQ0); log: encoder E1 termuat, hanya `fc.*` / `head.*` yang baru | ✅ 2026-11-11 |
 | Jalankan / lanjutkan | `setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &` | idem; cek `sha256sum -c artifacts/SHA256SUMS` dulu | `runs/rq1/rq1-0*_*/`, `runs/rq1/logs/`, `runs/rq1/queue.pid` | menunggu RQ0 selesai + izin |
+| RQ1-17 tuning lr probe (adendum 1) | `setsid nohup bash scripts/run_rq1.sh tune17 >> runs/rq1.log 2>&1 < /dev/null &` | `run_rq1.sh: tune17()` → `train.py --pretrained --freeze-backbone --lr {1e-4,1e-3,1e-2}`, 10% d0 s42 | `runs/rq1/rq1-17tune_lr*_*/`; pilih lr dengan BACC4 **validasi** tertinggi, lalu catat di adendum + STATUS | smoke ✅ 2026-11-11; menunggu izin |
+| RQ1-17a/b (ImageNet LP, LP-FT) | `LP_LR=<lr> setsid nohup bash scripts/run_rq1.sh lp17 >> runs/rq1.log 2>&1 < /dev/null &` | `run_rq1.sh: lp17_one()`: 17a `--freeze-backbone --lr $LP_LR`, lalu 17b `--init-from <17a>/model_best.pt --keep-head` (lr 1e-4) | `runs/rq1/rq1-17{a,b}_*/` | smoke ✅ 2026-11-11 (51/51 bersama tahap 1, args tahap 1 identik dengan sebelum refactor) |
 
 ## 3. Pre-training SSL (RQ1)
 | Langkah | Perintah | Kode | Output | Status |

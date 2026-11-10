@@ -122,3 +122,33 @@ Klaim "modifikasi lebih baik" hanya dibuat kalau modifikasi unggul **bermakna at
 - Kepala selain balanced softmax (RQ2), label noise (RQ5).
 - Encoder E1 DINO + ChronoCon ViT-S (ada sebagai artefak, tetapi tidak ada di `PLAN_RQ.md`).
 - Pool pre-training lain (RAM-W600), tuning hiperparameter per encoder.
+
+## Adendum 1 (2026-11-11): resep RQ1-17 (linear probe dan LP-FT)
+Ditulis dan di-commit sebelum run LP mana pun. Keputusan pengguna pada 2026-11-11. Kontras F4 tidak berubah.
+
+**Kode:**
+- Linear probe: `--freeze-backbone` (dengan `--pretrained` atau `--init-from`). Hanya kepala yang dilatih, dan BatchNorm backbone tetap dalam mode eval.
+- Tahap 2 LP-FT: `--init-from <run LP>/model_best.pt --keep-head`, yaitu checkpoint LP dimuat lengkap beserta kepalanya.
+- Kode: `train.py: check_init_args()`, `models.py: load_full()`. Test: `tests/test_rq1.py`.
+
+**1. Learning rate linear probe, dipilih di validasi.**
+- **Grid:** lr ∈ {1e-4, 1e-3, 1e-2}.
+- **Setelan:** ImageNet ResNet34, `--pretrained --freeze-backbone`, 10% label d0 s42. Selebihnya sama dengan resep RQ0-01 (balanced softmax, aug `base` di-seed, 50 epoch dan minimal 2.000 step, monitor QWK).
+  - Nama run: `rq1-17tune_lr{lr}_resnet34_imagenet_lp_b2_f0.1_d0_s42`.
+- **Pemilihan:** lr dengan BACC4 validasi tertinggi. Kalau seri sampai 3 desimal, dipilih lr yang lebih kecil. Test run tuning tidak dibaca untuk pemilihan, dan run tuning tidak masuk kontras mana pun.
+- **Pencatatan:** lr terpilih dicatat bertanggal di `STATUS.md` dan di bagian bawah adendum ini sebelum run RQ1-17 pertama.
+- **Cakupan:** lr ini dipakai untuk **semua** run linear probe (RQ1-17a, RQ1-17c, dan tahap 1 LP-FT RQ1-17b/d), tanpa LLRD dan tanpa warmup.
+  - Kalau "SSL terbaik" ternyata ViT-S, lr ini tetap dipakai walaupun dipilih di ResNet34 ImageNet. Batasan ini dicatat di laporan.
+
+**2. Tahap 2 LP-FT, satu faktor terhadap fine-tune penuh.**
+- Resep sama dengan fine-tune penuh untuk backbone yang sama:
+  - ResNet34: lr 1e-4, tanpa warmup.
+  - ViT-S: LLRD 0,85, lr 1e-4, warmup 10%.
+  - Keduanya: 50 epoch dan minimal 2.000 step, balanced softmax, aug `base` di-seed, monitor QWK.
+- Satu-satunya perbedaan dari fine-tune penuh adalah kepala yang sudah dilatih LP, bukan kepala acak.
+- Tahap 2 selalu memakai run LP dengan desain yang sama (fraksi, draw, dan seed yang sama).
+- Run LP tahap 1 untuk RQ1-17b/d **adalah** run RQ1-17a/c. Jadi RQ1-17b/d tidak menambah run LP baru, cukup memakai `model_best.pt` dari RQ1-17a/c.
+
+**3. Biaya (kasar).** RQ1-17a/b (ImageNet): 6 run LP + 6 run FT ≈ 3 jam. RQ1-17c/d setara, tergantung backbone SSL terbaik.
+
+**lr linear probe terpilih:** *(diisi setelah 3 run tuning, sebelum run RQ1-17 pertama)*

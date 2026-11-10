@@ -1,0 +1,12 @@
+# environment
+code/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# large or external data (sha256 recorded in artifacts/SHA256SUMS and data/derived/SHA256SUMS)
+data/
+artifacts/encoders/
+*.pt
+*.npz
+# run outputs stay local; analysis reports are copied into reports/
+runs/

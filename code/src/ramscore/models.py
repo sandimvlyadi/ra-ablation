@@ -112,6 +112,52 @@ class Criterion(nn.Module):
         return loss
 
 
+class ProjectionHead(nn.Module):
+    """SupCon projection (Khosla et al., 2020): MLP on the pooled features, L2-normalised; dropped at inference."""
+
+    def __init__(self, in_dim, out_dim=128):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(in_dim, in_dim), nn.ReLU(inplace=True), nn.Linear(in_dim, out_dim))
+
+    def forward(self, x):
+        return F.normalize(self.net(x), dim=1)
+
+
+def supcon_loss(z, labels, temperature=0.1, alpha=None, num_classes=5):
+    """Supervised contrastive loss L_out of Khosla et al. (2020) on L2-normalised embeddings z (N x d).
+
+    Positives of anchor i: every other sample with the same grade (the second view of i included); the denominator
+    runs over every sample except i. alpha=None is plain SupCon. With alpha, every other-grade sample k enters the
+    denominator with weight r_ik = alpha + (1 - alpha) |y_i - y_k| / (C - 1), same-grade samples with weight 1
+    (ordinal distance weight of M219, eq. 6 and 8, without its target-domain class weight b): distant-grade negatives
+    are pushed harder than adjacent ones. Grades are class positions, as in QWK. Anchors without a positive are
+    left out; the loss is the mean over the anchors that have one.
+    """
+    z = z.float()
+    n = z.shape[0]
+    sim = z @ z.T / temperature
+    self_mask = torch.eye(n, dtype=torch.bool, device=z.device)
+    same = labels[:, None] == labels[None, :]
+    pos = same & ~self_mask
+    den = sim
+    if alpha is not None:
+        dist = (labels[:, None] - labels[None, :]).abs().float() / (num_classes - 1)
+        den = sim + torch.where(same, torch.zeros_like(dist), torch.log(alpha + (1 - alpha) * dist))
+    log_den = torch.logsumexp(den.masked_fill(self_mask, float('-inf')), dim=1, keepdim=True)
+    has_pos = pos.any(dim=1)
+    if not has_pos.any():
+        return sim.new_zeros(())
+    log_prob = sim - log_den
+    per_anchor = (log_prob * pos).sum(dim=1)[has_pos] / pos.sum(dim=1)[has_pos]
+    return -per_anchor.mean()
+
+
+def pooled_and_logits(net, x):
+    """Pooled pre-classifier features and the logits of a timm classifier, from one forward pass."""
+    feats = net.forward_head(net.forward_features(x), pre_logits=True)
+    return feats, net.get_classifier()(feats)
+
+
 def decode(logits, head):
     if head == 'ordinal':
         return (torch.sigmoid(logits) > 0.5).sum(dim=1)

@@ -29,7 +29,7 @@
 | RQ1-10 | BYOL ResNet34 (umum) | metode ada | RQ0-01, RQ1-02 | baru | A | ±9 |
 | RQ1-11 | iBOT ViT-S, gabungan MAE + DINO (umum) | metode ada | RQ1-05, RQ1-06 | baru | B | ±11 |
 | RQ1-12 | SupCon + CE (M082, M166) | metode ada | RQ0-01 | baru (loss) | A | 2,5 |
-| RQ1-13 | **SupCon berbobot jarak grade** | **modifikasi** | RQ1-12 (asli), terbaik RQ1 | kecil di atas RQ1-12 | A | 2,5 |
+| RQ1-13 | **SupCon berbobot jarak grade** (sudah ada di M219; dilaporkan sebagai adaptasi, tanpa klaim baru, keputusan 2026-11-13) | **modifikasi** | RQ1-12 (asli), terbaik RQ1 | kecil di atas RQ1-12 | A | 2,5 |
 | RQ1-14 | SSL normalitas (sendi grade 0) gaya SS-FewSOME, skor kontinu (M197) | metode ada | RQ0-01 | baru | A | 3,9 |
 | RQ1-15 | **Skor normalitas sebagai gate grade 0 vs ≥1 di classifier** | **modifikasi** | RQ1-14 (asli), terbaik RQ1 | kecil | A | 1,9 |
 | RQ1-16 | **Penyelarasan progresi antarkunjungan (MMD) sebagai ganti ChronoCon** (M335) | **modifikasi** | RQ1-03 (ChronoCon), terbaik RQ1 | baru | B | ±3 |

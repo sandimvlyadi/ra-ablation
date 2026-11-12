@@ -131,6 +131,7 @@ class BEDataset(Dataset):
         self.has_mask = bool(records) and 'mask_path' in records[0]
         self.mask_cache = (np.stack([read_mask(r['mask_path'], image_size) for r in records])
                            if preload and self.has_mask else None)
+        self.views = 1   # 2: also return 'img2', a second independent augmentation of the same ROI (SupCon, RQ1-12/13)
 
     @property
     def num_classes(self):
@@ -149,17 +150,26 @@ class BEDataset(Dataset):
                 img, mask = out['image'], out['mask']
             img = torch.from_numpy(np.stack([img.astype(np.float32) / 255.0, (mask > 127).astype(np.float32)]))
         else:
-            if self.transform is not None:
-                img = self.transform(image=img)['image']
-            img = torch.from_numpy(img.astype(np.float32) / 255.0)[None]
+            raw = img
+            img = self.to_tensor(raw)
         label = int(self.labels[idx])
-        return {
+        out = {
             'img': img,
             'label': torch.tensor(label),
             'ordinal_target': torch.tensor([float(label > k) for k in range(self.num_classes - 1)]),
             'score': torch.tensor(rec['score']),
             'case': rec['case'], 'joint': rec['joint'], 'patient': rec['patient'],
         }
+        if self.views == 2:
+            if self.has_mask:
+                raise ValueError('two views are not defined with a mask channel')
+            out['img2'] = self.to_tensor(raw)   # drawn after the first view, from the same transform
+        return out
+
+    def to_tensor(self, img):
+        if self.transform is not None:
+            img = self.transform(image=img)['image']
+        return torch.from_numpy(img.astype(np.float32) / 255.0)[None]
 
 
 def visit_pairs(records):

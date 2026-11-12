@@ -9,6 +9,7 @@ Factor B options (see models.py): --head, --class-weight, --oversample,
 --logit-adjust. Decoupled retraining (B6): --init-from <run>/model_best.pt
 --freeze-backbone --oversample 1, which keeps the encoder and retrains a fresh classifier.
 Grade-0 undersampling (E7): --undersample-zero, on the train split only; validation and test stay whole.
+SupCon + CE (RQ1-12) and its grade-distance weighted negatives (RQ1-13, after M219): --supcon-weight, --supcon-alpha.
 Visit-pair penalty (E9): --pair-weight, on consecutive visits of one joint from every training patient, labelled or
 not; each step adds --pair-batch pairs to the labelled batch, and inference still takes a single image.
 
@@ -34,8 +35,8 @@ from .data import (AUGMENTATIONS, NATIVE_SCORES, BEDataset, RotatingZeroSampler,
                    get_transform, load_records, seed_augmentation_worker, subsample_patients, undersample_summary,
                    undersample_zero)
 from .metrics import bootstrap_ci, compute_metrics
-from .models import (HEADS, Criterion, add_input_channels, build_model, decode, expected_grade, freeze_backbone,
-                     load_backbone, load_full, monotonic_penalty)
+from .models import (HEADS, Criterion, ProjectionHead, add_input_channels, build_model, decode, expected_grade,
+                     freeze_backbone, load_backbone, load_full, monotonic_penalty, pooled_and_logits, supcon_loss)
 
 DEFAULT_ROOT = '/data/Smart-X/tesis-fix/dataset/RAM-H1200-v1/SvdH_Scoring/SvdH_BE_Scoring'
 
@@ -65,6 +66,12 @@ def get_args(argv=None):
     p.add_argument('--pair-margin', type=float, default=0.25,
                    help='Fall of the expected grade that goes unpenalised, in grade positions')
     p.add_argument('--pair-batch', type=int, default=16, help='Visit pairs per step, on top of the labelled batch')
+    p.add_argument('--supcon-weight', type=float, default=0.0,
+                   help='Weight of the supervised contrastive loss added to the classification loss (RQ1-12/13); '
+                        'two augmented views per joint, the classification loss sees the first only; 0 = off')
+    p.add_argument('--supcon-temp', type=float, default=0.1, help='SupCon temperature (Khosla et al., 2020)')
+    p.add_argument('--supcon-alpha', type=float, default=None,
+                   help='Grade-distance weight of SupCon negatives (M219 eq. 6, alpha); unset = plain SupCon')
     p.add_argument('--init-from', help='Checkpoint whose encoder initialises the model (classifier is reset)')
     p.add_argument('--freeze-backbone', action='store_true',
                    help='Train only the classifier (linear probe); needs --init-from or --pretrained')
@@ -136,6 +143,29 @@ def check_pair_args(args):
                          '--freeze-backbone, --undersample-zero, --class-weight or --oversample')
 
 
+def check_supcon_args(args):
+    """SupCon is added to the plain fine-tuning recipe only; alpha is a weight in (0, 1]."""
+    if args.supcon_alpha is not None and not args.supcon_weight:
+        raise SystemExit('--supcon-alpha needs --supcon-weight')
+    if args.supcon_alpha is not None and not 0 < args.supcon_alpha <= 1:
+        raise SystemExit('--supcon-alpha must be in (0, 1]')
+    if args.supcon_weight and (args.pair_weight or args.mask_root or args.freeze_backbone or args.keep_head
+                               or args.undersample_zero != 'off' or args.layer_decay):
+        raise SystemExit('--supcon-weight cannot be combined with --pair-weight, --mask-root, --freeze-backbone, '
+                         '--keep-head, --undersample-zero or --layer-decay')
+
+
+def supcon_step(net, proj, batch, target, criterion, args, num_classes, device):
+    """One forward pass over both views, so BatchNorm sees them together. Classification loss on the first view only,
+    as in the reference recipe; SupCon on both. Returns the classification loss and the SupCon loss."""
+    img2 = batch['img2'].to(device, non_blocking=True)
+    n = target.shape[0]
+    feats, logits = pooled_and_logits(net, torch.cat([batch['img'].to(device, non_blocking=True), img2]))
+    z = proj(feats.float())
+    return (criterion(logits[:n].float(), target),
+            supcon_loss(z, torch.cat([target, target]), args.supcon_temp, args.supcon_alpha, num_classes))
+
+
 def make_pair_loader(ds, args):
     # own generator and worker streams, so the labelled loader keeps its order and its augmentation
     worker_init = partial(seed_augmentation_worker, args.seed + 1000) if args.seed_aug else None
@@ -180,6 +210,7 @@ def main(argv=None):
         raise SystemExit('--undersample-zero cannot be combined with --class-weight, --oversample, --logit-adjust '
                          'or --freeze-backbone')
     check_pair_args(args)
+    check_supcon_args(args)
     run_dir = Path(args.out) / args.name
     run_dir.mkdir(parents=True, exist_ok=False)
     seed_everything(args.seed)
@@ -207,6 +238,8 @@ def main(argv=None):
     print(f'Loaded ROIs in {time.time() - t0:.0f}s: ' + ', '.join(
         f"{s} {len(d)} joints / {len({r['patient'] for r in d.records})} patients" for s, d in ds.items()))
 
+    if args.supcon_weight:
+        ds['train'].views = 2
     g = torch.Generator().manual_seed(args.seed)
     loaders = {s: make_loader(d, args, s == 'train', g) for s, d in ds.items()}
     args.epochs = max(args.epochs, math.ceil(args.min_steps / max(len(loaders['train']), 1)))
@@ -224,13 +257,15 @@ def main(argv=None):
         freeze_backbone(net)
     net.to(device)
     criterion = Criterion(args.head, ds['train'].labels, num_classes, args.class_weight, args.logit_adjust).to(device)
+    proj = ProjectionHead(net.num_features).to(device) if args.supcon_weight else None
+    extra = list(proj.parameters()) if proj is not None else []   # projection: trained, never saved
     if args.layer_decay:
         groups = param_groups_layer_decay(net, args.weight_decay, layer_decay=args.layer_decay)
         for g in groups:
             g['lr'] = args.lr * g.pop('lr_scale')
         opt = torch.optim.AdamW(groups, lr=args.lr)
     else:
-        opt = torch.optim.AdamW([p for p in net.parameters() if p.requires_grad], lr=args.lr,
+        opt = torch.optim.AdamW([p for p in net.parameters() if p.requires_grad] + extra, lr=args.lr,
                                 weight_decay=args.weight_decay)
     if args.layer_decay or args.warmup:
         # same cosine to 1% as below, but as a factor so every layer group keeps its ratio
@@ -251,15 +286,21 @@ def main(argv=None):
     best, history = -np.inf, []
     for epoch in range(args.epochs):
         net.train()
+        if proj is not None:
+            proj.train()
         if args.freeze_backbone:
             net.eval()                      # keep BatchNorm statistics of the frozen encoder
             net.get_classifier().train()
-        losses, penalties, violations = [], [], []
+        losses, penalties, violations, contrastive = [], [], [], []
         for batch in tqdm(loaders['train'], desc=f'epoch {epoch}', leave=False):
             img, target = batch['img'].to(device, non_blocking=True), batch['label'].to(device)
             opt.zero_grad(set_to_none=True)
             with torch.autocast(device.type, enabled=args.amp):
-                if pairs is None:
+                if proj is not None:
+                    supervised, con = supcon_step(net, proj, batch, target, criterion, args, num_classes, device)
+                    loss = supervised + args.supcon_weight * con
+                    contrastive.append(con.item())
+                elif pairs is None:
                     supervised = criterion(net(img).float(), target)
                     loss = supervised
                 else:
@@ -278,7 +319,8 @@ def main(argv=None):
         history.append({'epoch': epoch, 'train_loss': float(np.mean(losses)),
                         **{f'val_{k}': val[k] for k in ('qwk', 'bacc4', 'bacc5', 'macro_f1', 'mae')},
                         **({'pair_penalty': float(np.mean(penalties)), 'pair_violation': float(np.mean(violations))}
-                           if pairs is not None else {})})
+                           if pairs is not None else {}),
+                        **({'supcon_loss': float(np.mean(contrastive))} if proj is not None else {})})
         improved = val[args.monitor] > best
         if improved:
             best = val[args.monitor]

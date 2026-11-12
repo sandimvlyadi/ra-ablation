@@ -62,7 +62,7 @@ LABELS = {
     'rq1-08': 'SimCLR ResNet34',
     'rq1-10': 'BYOL ResNet34',
     'rq1-12': 'SupCon + CE ResNet34',
-    'rq1-13': 'SupCon berbobot jarak grade ResNet34 (modifikasi)',
+    'rq1-13': 'SupCon berbobot jarak grade ResNet34 (adaptasi M219)',
     'rq1-14': 'SSL normalitas grade 0 ResNet34',
     'rq1-15': 'Gate normalitas 0 vs ≥1 ResNet34 (modifikasi)',
     'rq1-17a': 'Linear probe ImageNet ResNet34',

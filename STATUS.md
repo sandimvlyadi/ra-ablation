@@ -38,6 +38,8 @@
 | 2026-11-11 | RQ1-17: lr linear probe dipilih di validasi dari {1e-4, 1e-3, 1e-2} (10% d0 s42, ImageNet ResNet34); tahap 2 LP-FT memakai resep FT penuh (lr 1e-4 / LLRD ViT) |
 | 2026-11-11 | Hasil tuning adendum 1 (validasi saja): lr linear probe = **1e-2** (val BACC4 0,382 vs 0,364 @1e-3 dan 0,330 @1e-4); tepi atas grid, grid tidak diperluas |
 | 2026-11-11 | RQ0 lolos uji reproduksi; antrean RQ1 utama (RQ1-01..06) diluncurkan |
+| 2026-11-13 | RQ1-13 sudah dipublikasikan oleh M219 (negatif berbobot jarak grade, domain adaptation KL lutut): dilaporkan sebagai **adaptasi M219, tanpa klaim baru**. λ SupCon dipilih di validasi dari {0,1; 0,5; 1,0} (adendum 3) |
+| 2026-11-13 | Urutan kerja: **RQ1 diselesaikan dulu**; tahap 1 RQ2 tidak diluncurkan paralel (GPU boleh menganggur selama kode RQ1 ditulis). Draf aturan RQ2 tetap belum di-commit |
 | 2026-11-13 | Kriteria "metode terbaik" RQ1: **opsi (a) + analisis sensitivitas**. Kriteria utama tetap val BACC4; ditambah pembanding sensitivitas "terbaik dengan val QWK ≥ rujukan ImageNet ResNet34" (p mentah, tanpa Holm). Adendum 2 `rules/rq1_prespecification.md`; aturan yang sama ditulis di draf RQ2 |
 | 2026-11-12 | Modul analisis `rq1.py` ditulis; laporan RQ1 sementara (`reports/rq1.md`). Checkpoint smoke test sesi lama di `/tmp` (12 GB, kuota tmpfs penuh) dihapus, log/metrics smoke tetap |
 
@@ -46,8 +48,9 @@
 2. ~~Analisis RQ0~~ selesai 2026-11-11: uji reproduksi identik dengan E8 `base` (prediksi identik 1,000 pada 6/6 run, selisih BACC4 0,000), jadi RQ1 tidak ditahan. ConvNeXt-Tiny − ResNet34: BACC4 +0,020 (100%) dan +0,018 (10%), Holm p = 0,392 untuk keduanya → tidak terbukti. Laporan: `reports/rq0.md`.
 3. **RQ1 `all` diluncurkan 2026-11-11 09:33 dengan izin, selesai 20:37** (36 run, ±11 jam; total RQ1 51 run dengan `metrics.json`). Analisis sementara (RQ1-01…06, 17a/b) 2026-11-12: `reports/rq1.md`. Semua 16 kontras yang bisa dihitung "tidak terbukti" (Holm p = 1,000). Pilihan "metode terbaik" dan "SSL terbaik" masih sementara karena kandidat RQ1-07/08/10/12/14/18b belum dijalankan. Cek: `bash scripts/run_rq1.sh`. Perintah resume: `setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &` (±13 jam kasar).
 4. RQ1-17: tuning lr selesai (lr probe = 1e-2, `1b54a0e`). **`lp17` diluncurkan 2026-11-11 02:40 dengan izin, selesai 07:30 (12/12 run + 3 tuning).** Perintah resume: `LP_LR=1e-2 setsid nohup bash scripts/run_rq1.sh lp17 >> runs/rq1.log 2>&1 < /dev/null &` (12 run, ±3,8 jam kasar).
-5. Paralel tanpa GPU: kode SSL baru / RQ2 sesuai prioritas.
-6. Push ke remote kapan pun pengguna memutuskan.
+5. **RQ1-12/13 (SupCon):** kode + 19 test (pytest 259 passed), smoke antrean 15/15 (2026-11-13). 1 epoch 100% ±75 s (1,4× RQ0). Adendum 3 ditulis, belum di-commit. Berikutnya: commit adendum 3 → `tune12` (3 run, ±0,5 jam kasar) → catat λ → `SUPCON_W=<λ> … supcon12` (12 run, ±5,4 jam kasar). Perintah: `setsid nohup bash scripts/run_rq1.sh tune12 >> runs/rq1.log 2>&1 < /dev/null &`.
+6. Sisa kode RQ1 (prio A): bone age RSNA (unduh Kaggle, izin), SimCLR, BYOL, SSL normalitas + gate, SKELEX (ukur 1 epoch).
+7. Push ke remote kapan pun pengguna memutuskan.
 
 ## Pertanyaan terbuka untuk pengguna atau dosen
 - ~~(2026-11-12) Kriteria "metode terbaik"~~ diputuskan 2026-11-13: opsi (a) + sensitivitas (adendum 2 RQ1, belum di-commit). Pilihan sensitivitas sementara: 100% DINO ResNet34, 10% ImageNet ResNet34 (rujukan); laporan `reports/rq1.md` diperbarui (kontras utama tidak berubah).

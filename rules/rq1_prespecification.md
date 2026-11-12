@@ -179,3 +179,25 @@ Keputusan pengguna pada 2026-11-13 (opsi a + sensitivitas). **Analisis utama tid
 - Klaim "modifikasi lebih baik" tetap hanya berdasarkan analisis utama. Kalau arah atau signifikansi nominal (p mentah < 0,05) analisis sensitivitas berbeda dengan analisis utama, perbedaan itu disebutkan di kesimpulan.
 
 **Kode:** `rq1.py: select(qwk_floor_arm=)`, `selections()`, `sensitivity()`. Test: `tests/test_rq1_analysis.py`.
+
+## Adendum 3 (2026-11-13): resep RQ1-12 (SupCon + CE) dan RQ1-13 (negatif berbobot jarak grade)
+Ditulis sebelum run RQ1-12/13 mana pun, termasuk run tuning. Keputusan pengguna pada 2026-11-13. Kontras F1/F3 tidak berubah.
+
+**Status kebaruan RQ1-13.** Pencarian terarah menemukan bahwa bobot negatif berdasarkan jarak grade di supervised contrastive loss sudah dipublikasikan oleh M219 (Bioengineering 2026, grading KL lutut, untuk domain adaptation source → target). RQ1-13 karena itu **tidak diklaim baru**. RQ1-13 dilaporkan sebagai *adaptasi M219* ke pelatihan satu domain untuk erosi per sendi. Posisinya di F3 tetap (dibandingkan dengan versi asli RQ1-12 dan dengan metode terbaik), tetapi kesimpulannya tidak boleh menyebut RQ1-13 sebagai kontribusi baru tesis. M082 dan M166 (rujukan SupCon + CE di `PLAN_RQ.md`) berbayar dan teks lengkapnya tidak tersedia, jadi resep SupCon diambil dari paper aslinya (Khosla dkk., 2020).
+
+**Resep bersama RQ1-12/13** (di atas resep RQ0-01: ImageNet ResNet34 `resnet34.a1_in1k`, balanced softmax, AdamW lr 1e-4, wd 1e-3, cosine, 50 epoch dan minimal 2.000 step, aug `base` di-seed, monitor val QWK):
+- **Dua view:** setiap sendi diaugmentasi dua kali secara independen dengan aug `base`. Loss klasifikasi (balanced softmax) **hanya dihitung pada view pertama**, sama dengan resep rujukan. SupCon dihitung pada kedua view. Keduanya lewat satu forward pass, jadi BatchNorm melihat kedua view bersama.
+- **SupCon:** L_out (Khosla dkk., 2020) pada embedding proyeksi yang dinormalisasi L2. Positif = semua sampel lain dengan grade yang sama dalam batch (termasuk view kedua dari sendi yang sama). Penyebut = semua sampel kecuali anchor. Suhu τ = 0,1. Anchor tanpa positif dikeluarkan.
+- **Kepala proyeksi:** MLP 512 → 512 → 128 (ReLU) di atas fitur pooled ResNet34. Kepala ini ikut dilatih dengan lr dan wd yang sama, tetapi tidak disimpan dan tidak dipakai saat inferensi. Inferensi tetap memakai classifier biasa pada satu citra.
+- **Loss total:** balanced softmax + λ · SupCon.
+- **RQ1-13 saja:** setiap sampel k dengan grade berbeda masuk penyebut dengan bobot r = α + (1 − α)·|yᵢ − yₖ|/(C − 1), sedangkan sampel dengan grade sama berbobot 1 (M219, persamaan 6 dan 8). α = 0,25 (nilai M219), C = 5, dan grade memakai posisi kelas (0, 1, 2, 3, 5 → 0…4), sama seperti QWK. Bobot penyeimbang kelas target (b) dari M219 **tidak dipakai**, karena imbalance sudah ditangani balanced softmax dan b khusus untuk domain target. Satu-satunya perbedaan RQ1-13 dari RQ1-12 adalah bobot r.
+
+**λ dipilih di validasi (seperti adendum 1).**
+- **Grid:** λ ∈ {0,1; 0,5; 1,0}, pada RQ1-12, 10% label d0 s42. Nama run: `rq1-12tune_lam{λ}_resnet34_imagenet_supcon_b2_f0.1_d0_s42`.
+- **Pemilihan:** λ dengan BACC4 validasi tertinggi. Kalau seri sampai 3 desimal, dipilih λ yang lebih kecil. Test run tuning tidak dibaca, dan run tuning tidak masuk kontras mana pun.
+- **Cakupan:** λ terpilih dipakai untuk semua run RQ1-12 **dan** RQ1-13. RQ1-13 tidak di-tuning terpisah, supaya perbedaannya dari RQ1-12 tetap satu faktor.
+- **Pencatatan:** λ terpilih dicatat bertanggal di `STATUS.md` dan di bagian bawah adendum ini sebelum run RQ1-12/13 utama pertama.
+
+**Biaya (kasar).** 1 epoch pada 100% label diukur ±75 detik (RQ0 ResNet34: 54 detik), jadi ±1,4×. Tuning ±0,5 jam. RQ1-12 + RQ1-13: 12 run, ±5,4 jam.
+
+**Kode:** `train.py: --supcon-weight, --supcon-temp, --supcon-alpha, check_supcon_args(), supcon_step()`; `models.py: supcon_loss(), ProjectionHead, pooled_and_logits()`; `data.py: BEDataset.views`. Test: `tests/test_supcon.py`. Antrean: `scripts/run_rq1.sh tune12` dan `SUPCON_W=<λ> … supcon12`.

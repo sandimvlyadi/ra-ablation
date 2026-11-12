@@ -13,6 +13,8 @@
 #        setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &      stage 1 (RQ1-01..06)
 #        ... run_rq1.sh tune17                 addendum 1: 3 linear-probe lr runs (pick on validation)
 #        ... LP_LR=<lr> run_rq1.sh lp17        RQ1-17a (LP) + RQ1-17b (LP-FT), ImageNet ResNet34
+#        ... run_rq1.sh tune12                 addendum 3: 3 SupCon-weight runs (pick on validation)
+#        ... SUPCON_W=<w> run_rq1.sh supcon12  RQ1-12 (SupCon + CE) + RQ1-13 (grade-distance negatives, M219)
 # Smoke test: OUT=/tmp/rq1 bash scripts/run_rq1.sh all --limit 640 --epochs 1 --min-steps 0
 # MINUTES are rough: ResNet34 from E3, ViT-S from E2 medians.
 set -uo pipefail
@@ -37,7 +39,7 @@ declare -A FLAGS=(
     [rq1-05]="--model vit_small_patch16_224 --init-from ${ENC}/e1_mae_vits/encoder.pt ${VIT}"
     [rq1-06]="--model vit_small_patch16_224 --init-from ${ENC}/e1_dino_vits/encoder.pt ${VIT}"
 )
-declare -A MINUTES=([resnet34_0.1]=7 [resnet34_1.0]=31 [vits_0.1]=10 [vits_1.0]=40)
+declare -A MINUTES=([resnet34_0.1]=7 [resnet34_1.0]=31 [vits_0.1]=10 [vits_1.0]=40 [supcon_0.1]=10 [supcon_1.0]=44)
 
 PLAN=""
 run() {   # name, minutes, then the arm's train.py flags; a failure is reported and the queue goes on
@@ -107,19 +109,48 @@ lp17() {
     for seed in 42 1337 2026; do lp17_one 1.0 0 "${seed}"; done
 }
 
+# Addendum 3: SupCon weight on validation (RQ1-12, ImageNet ResNet34, 10% d0 s42), then RQ1-12 and RQ1-13 with that
+# weight. Two views; the classification loss sees the first only. RQ1-13 differs from RQ1-12 only by --supcon-alpha.
+tune12() {
+    local w
+    for w in 0.1 0.5 1.0; do
+        # shellcheck disable=SC2046
+        run "rq1-12tune_lam${w}_resnet34_imagenet_supcon_b2_f0.1_d0_s42" "${MINUTES[supcon_0.1]}" --model resnet34 \
+            --pretrained --supcon-weight "${w}" $(design 0.1 0 42)
+    done
+}
+
+supcon12_one() {   # fraction, draw, seed
+    local frac=$1 draw=$2 seed=$3 tag="b2_f$1_d$2_s$3"
+    # shellcheck disable=SC2046
+    run "rq1-12_resnet34_imagenet_supcon_${tag}" "${MINUTES[supcon_${frac}]}" --model resnet34 --pretrained \
+        --supcon-weight "${SUPCON_W}" $(design "${frac}" "${draw}" "${seed}")
+    # shellcheck disable=SC2046
+    run "rq1-13_resnet34_imagenet_supconord_${tag}" "${MINUTES[supcon_${frac}]}" --model resnet34 --pretrained \
+        --supcon-weight "${SUPCON_W}" --supcon-alpha 0.25 $(design "${frac}" "${draw}" "${seed}")
+}
+
+supcon12() {
+    local draw seed
+    for draw in 0 1 2; do supcon12_one 0.1 "${draw}" 42; done
+    for seed in 42 1337 2026; do supcon12_one 1.0 0 "${seed}"; done
+}
+
 table() { awk '{ n[$1]++; d[$1] += $2; if (!$2) m[$1] += $3 } END { printf "%-12s %10s %10s\n", "arm", "runs done", "hours left"; for (a in n) printf "%-12s %5d/%-4d %10.1f\n", a, d[a], n[a], m[a] / 60 }' | sort; }
 
 if [[ -z "${STAGE}" ]]; then
     PLAN=1
     LP_LR="${LP_LR:-x}"
+    SUPCON_W="${SUPCON_W:-x}"
     echo "OUT=${OUT}  (hours are rough)"
-    { queue; tune17; lp17; } | table
+    { queue; tune17; lp17; tune12; supcon12; } | table
     exit 0
 fi
 case "${STAGE}" in
-    all|tune17) ;;
+    all|tune17|tune12) ;;
+    supcon12) [[ -n "${SUPCON_W:-}" ]] || { echo "supcon12 needs the weight chosen in addendum 3: SUPCON_W=<w> bash scripts/run_rq1.sh supcon12" >&2; exit 1; } ;;
     lp17) [[ -n "${LP_LR:-}" ]] || { echo "lp17 needs the lr chosen in addendum 1: LP_LR=<lr> bash scripts/run_rq1.sh lp17" >&2; exit 1; } ;;
-    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17" >&2; exit 1 ;;
+    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17, tune12, supcon12" >&2; exit 1 ;;
 esac
 (cd "${ROOT}/artifacts" && sha256sum --quiet -c SHA256SUMS) || { echo "encoder checksums failed; queue not started" >&2; exit 1; }
 mkdir -p "${OUT}/logs"
@@ -129,5 +160,7 @@ case "${STAGE}" in
     all) queue ;;
     tune17) tune17 ;;
     lp17) lp17 ;;
+    tune12) tune12 ;;
+    supcon12) supcon12 ;;
 esac
 echo "$(date '+%F %T') RQ1 ${STAGE} finished: $(compgen -G "${OUT}/rq1-*/metrics.json" | wc -l) runs with metrics.json"

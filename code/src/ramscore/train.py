@@ -97,6 +97,8 @@ def get_args(argv=None):
     p.add_argument('--seed', type=int, default=2026)
     p.add_argument('--workers', type=int, default=6)
     p.add_argument('--amp', action='store_true', help='Mixed precision (benchmark: off)')
+    p.add_argument('--grad-checkpointing', action='store_true',
+                   help='Recompute activations in the backward pass (memory for time; same result; ViT-L, RQ1-18)')
     p.add_argument('--n-boot', type=int, default=2000, help='Patient-level bootstrap resamples for test CIs')
     p.add_argument('--limit', type=int, default=0, help='Use only the first N records per split (smoke test)')
     return p.parse_args(argv)
@@ -255,6 +257,8 @@ def main(argv=None):
         add_input_channels(net)
     if args.freeze_backbone:
         freeze_backbone(net)
+    if args.grad_checkpointing:
+        net.set_grad_checkpointing(True)
     net.to(device)
     criterion = Criterion(args.head, ds['train'].labels, num_classes, args.class_weight, args.logit_adjust).to(device)
     proj = ProjectionHead(net.num_features).to(device) if args.supcon_weight else None

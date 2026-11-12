@@ -260,3 +260,13 @@ Ditulis sebelum pre-training atau run RQ1-07 mana pun. Unduhan diizinkan penggun
 | 1,0 | 0,387 | 0,239 | 18 |
 
 1,0 berada di tepi atas grid. Grid tidak diperluas karena sudah dikunci sebelum tuning. Batasan ini dicatat di laporan.
+
+## Adendum 7 (2026-11-13): resep RQ1-18a/b (SKELEX ViT-L, M015)
+Ditulis sebelum run RQ1-18 mana pun. Unduhan diizinkan pengguna pada 2026-11-13. Kontras F1/F2/F4 tidak berubah.
+
+- **Bobot:** Hugging Face `skhoha/SKELEX` (`ViTMAEForPreTraining`, ViT-L/16, 224 px, 3 kanal; lisensi CC-BY-NC-ND-4.0, dipakai untuk riset akademik, bobot turunan tidak dibagikan). sha256 file asli ada di `data/external/skelex/SHA256SUMS`.
+- **Konversi ke timm** `vit_large_patch16_224` (`skelex.py convert`). Decoder MAE dibuang. Replikasi grayscale ke 3 kanal dan normalisasi ImageNet (mean/std dari `preprocessor_config.json`) digabung ke patch embedding, sehingga input 1 kanal [0, 1] pipeline ini memberi embedding yang sama dengan SKELEX. **Verifikasi** (`skelex.py verify`): cosine minimal 1,000000 dan error relatif maksimal 1,9e-4 terhadap forward referensi yang ditulis langsung dari bobot Hugging Face. Sisa error berasal dari eps LayerNorm (timm 1e-6, SKELEX 1e-12). Pooling = token CLS setelah LayerNorm akhir, sama seperti `ViTForImageClassification` di README SKELEX.
+- **RQ1-18a (linear probe):** `--freeze-backbone`, lr 1e-2 (adendum 1, berlaku untuk semua linear probe), tanpa LLRD dan tanpa warmup.
+- **RQ1-18b (fine-tune):** resep ViT RQ1 (LLRD 0,85, lr 1e-4, warmup 10%), dan selebihnya resep bersama (balanced softmax, 50 epoch dan minimal 2.000 step, aug `base` di-seed, monitor val QWK, batch 32, AMP). Ditambah **gradient checkpointing** (`--grad-checkpointing`), yang tidak mengubah hasil hitungan (test: output dan gradien identik) dan hanya diperlukan karena ViT-L tidak muat di 12 GB tanpanya. **Penyimpangan dari M015:** M015 memakai AdamW lr 5e-5–1e-4, wd 0,02–0,05, warmup 10%, 30 epoch, batch 64, dan tidak menyebut LLRD. Di sini dipakai resep ViT bersama RQ1, supaya RQ1-18b sebanding dengan ViT-S RQ1-04…06.
+- **Biaya:** belum diukur. Smoke test (batch 8, checkpointing) memuncak di 6,4 GB VRAM. 1 epoch pada 100% label diukur dulu di GPU kosong sebelum tahap `skelex18` diluncurkan, dan perkiraannya dicatat di sini.
+- **Kode:** `skelex.py` (`hf_to_timm()`, `reference_cls()`, `convert`, `verify`), `train.py --grad-checkpointing`. Test: `tests/test_skelex.py`. Antrean: `scripts/run_rq1.sh skelex18`.

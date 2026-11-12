@@ -18,6 +18,7 @@
 #        ... run_rq1.sh ssl0810                addendum 4: SimCLR (RQ1-08) and BYOL (RQ1-10) pre-training on the E1 pool,
 #                                              then 6 fine-tunes each; pre-training resumes from its checkpoint
 #        ... run_rq1.sh boneage07              addendum 6: RSNA bone-age regression pre-training (M005), then 6 fine-tunes
+#        ... run_rq1.sh skelex18               addendum 7: SKELEX ViT-L, linear probe (RQ1-18a) + fine-tune LLRD (RQ1-18b)
 #        ... run_rq1.sh norm1415               addendum 5: RQ1-14 normality model (M197 stage 1) + RQ1-15 gate on RQ0-01
 # Smoke test of ssl0810: also set PRE=<dir> PRETRAIN_ARGS="--epochs 1 --limit 300" so the pre-training stays small.
 # Smoke test: OUT=/tmp/rq1 bash scripts/run_rq1.sh all --limit 640 --epochs 1 --min-steps 0
@@ -52,7 +53,8 @@ declare -A FLAGS=(
     [rq1-06]="--model vit_small_patch16_224 --init-from ${ENC}/e1_dino_vits/encoder.pt ${VIT}"
 )
 declare -A MINUTES=([resnet34_0.1]=7 [resnet34_1.0]=31 [vits_0.1]=10 [vits_1.0]=40 [supcon_0.1]=10 [supcon_1.0]=44
-                    [pretrain]=270 [norm_0.1]=5 [norm_1.0]=15 [gate]=1 [boneage]=80)
+                    [pretrain]=270 [norm_0.1]=5 [norm_1.0]=15 [gate]=1 [boneage]=80
+                    [vitl_lp_0.1]=15 [vitl_lp_1.0]=60 [vitl_0.1]=45 [vitl_1.0]=200)   # ViT-L: not measured yet
 PRE="${PRE:-${ROOT}/runs/rq1_pretrain}"
 read -r -a PRETRAIN_EXTRA <<< "${PRETRAIN_ARGS:-}"
 
@@ -217,6 +219,25 @@ boneage07() {
     finetunes rq1-07 resnet34_boneage "${dir}/encoder.pt"
 }
 
+# Addendum 7: SKELEX converted to timm (skelex.py convert/verify). 18a = linear probe with the addendum-1 lr (1e-2, no
+# LLRD, no warm-up); 18b = the ViT recipe (LLRD 0.85, lr 1e-4, warm-up 10%) with gradient checkpointing (same result).
+SKELEX="${SKELEX:-${ROOT}/data/external/skelex/encoder_timm.pt}"
+skelex18_one() {   # fraction, draw, seed
+    local frac=$1 draw=$2 seed=$3 tag="b2_f$1_d$2_s$3"
+    # shellcheck disable=SC2046
+    run "rq1-18a_vitl_skelex_lp_${tag}" "${MINUTES[vitl_lp_${frac}]}" --model vit_large_patch16_224 \
+        --init-from "${SKELEX}" --freeze-backbone --lr 1e-2 $(design "${frac}" "${draw}" "${seed}")
+    # shellcheck disable=SC2046,SC2086
+    run "rq1-18b_vitl_skelex_${tag}" "${MINUTES[vitl_${frac}]}" --model vit_large_patch16_224 --init-from "${SKELEX}" \
+        ${VIT} --grad-checkpointing $(design "${frac}" "${draw}" "${seed}")
+}
+
+skelex18() {
+    local draw seed
+    for draw in 0 1 2; do skelex18_one 0.1 "${draw}" 42; done
+    for seed in 42 1337 2026; do skelex18_one 1.0 0 "${seed}"; done
+}
+
 # Addendum 5: RQ1-14 trains on the grade-0 joints of the labelled training patients of each design; RQ1-15 gates the
 # RQ0-01 classifier of the same design with that score (no training). Both write the train.py run layout.
 norm_run() {   # name, minutes, then ramscore.normality arguments
@@ -265,14 +286,14 @@ if [[ -z "${STAGE}" ]]; then
     LP_LR="${LP_LR:-x}"
     SUPCON_W="${SUPCON_W:-x}"
     echo "OUT=${OUT}  (hours are rough)"
-    { queue; tune17; lp17; tune12; supcon12; ssl0810; norm1415; boneage07; } | table
+    { queue; tune17; lp17; tune12; supcon12; ssl0810; norm1415; boneage07; skelex18; } | table
     exit 0
 fi
 case "${STAGE}" in
-    all|tune17|tune12|ssl0810|norm1415|boneage07) ;;
+    all|tune17|tune12|ssl0810|norm1415|boneage07|skelex18) ;;
     supcon12) [[ -n "${SUPCON_W:-}" ]] || { echo "supcon12 needs the weight chosen in addendum 3: SUPCON_W=<w> bash scripts/run_rq1.sh supcon12" >&2; exit 1; } ;;
     lp17) [[ -n "${LP_LR:-}" ]] || { echo "lp17 needs the lr chosen in addendum 1: LP_LR=<lr> bash scripts/run_rq1.sh lp17" >&2; exit 1; } ;;
-    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17, tune12, supcon12, ssl0810, norm1415, boneage07" >&2; exit 1 ;;
+    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17, tune12, supcon12, ssl0810, norm1415, boneage07, skelex18" >&2; exit 1 ;;
 esac
 (cd "${ROOT}/artifacts" && sha256sum --quiet -c SHA256SUMS) || { echo "encoder checksums failed; queue not started" >&2; exit 1; }
 mkdir -p "${OUT}/logs"
@@ -287,5 +308,6 @@ case "${STAGE}" in
     ssl0810) ssl0810 ;;
     norm1415) norm1415 ;;
     boneage07) boneage07 ;;
+    skelex18) skelex18 ;;
 esac
 echo "$(date '+%F %T') RQ1 ${STAGE} finished: $(compgen -G "${OUT}/rq1-*/metrics.json" | wc -l) runs with metrics.json"

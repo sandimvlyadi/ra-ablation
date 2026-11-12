@@ -1,6 +1,6 @@
 # STATUS
 
-**Terakhir diperbarui:** 2026-11-11, oleh Claude (sesi di `ra-ablation`).
+**Terakhir diperbarui:** 2026-11-13, oleh Claude (sesi di `ra-ablation`).
 
 ## Posisi sekarang
 - Repo disiapkan **secara lokal, belum di-commit dan belum di-push**. Pengguna memutuskan kapan commit pertama dan push dilakukan.
@@ -38,6 +38,7 @@
 | 2026-11-11 | RQ1-17: lr linear probe dipilih di validasi dari {1e-4, 1e-3, 1e-2} (10% d0 s42, ImageNet ResNet34); tahap 2 LP-FT memakai resep FT penuh (lr 1e-4 / LLRD ViT) |
 | 2026-11-11 | Hasil tuning adendum 1 (validasi saja): lr linear probe = **1e-2** (val BACC4 0,382 vs 0,364 @1e-3 dan 0,330 @1e-4); tepi atas grid, grid tidak diperluas |
 | 2026-11-11 | RQ0 lolos uji reproduksi; antrean RQ1 utama (RQ1-01..06) diluncurkan |
+| 2026-11-13 | Kriteria "metode terbaik" RQ1: **opsi (a) + analisis sensitivitas**. Kriteria utama tetap val BACC4; ditambah pembanding sensitivitas "terbaik dengan val QWK ≥ rujukan ImageNet ResNet34" (p mentah, tanpa Holm). Adendum 2 `rules/rq1_prespecification.md`; aturan yang sama ditulis di draf RQ2 |
 | 2026-11-12 | Modul analisis `rq1.py` ditulis; laporan RQ1 sementara (`reports/rq1.md`). Checkpoint smoke test sesi lama di `/tmp` (12 GB, kuota tmpfs penuh) dihapus, log/metrics smoke tetap |
 
 ## Langkah berikutnya
@@ -49,5 +50,7 @@
 6. Push ke remote kapan pun pengguna memutuskan.
 
 ## Pertanyaan terbuka untuk pengguna atau dosen
-- (2026-11-12) Kriteria "metode terbaik yang sudah ada" (val BACC4) sementara memilih Scratch ResNet34 (val QWK 10% = 0,045). Opsi: (a) biarkan sesuai aturan + catatan di laporan (saran), (b) adendum kriteria sebelum kandidat lain selesai. Belum diputuskan. `rq1 gap` (GPU, ±20–30 menit) belum dijalankan.
+- ~~(2026-11-12) Kriteria "metode terbaik"~~ diputuskan 2026-11-13: opsi (a) + sensitivitas (adendum 2 RQ1, belum di-commit). Pilihan sensitivitas sementara: 100% DINO ResNet34, 10% ImageNet ResNet34 (rujukan); laporan `reports/rq1.md` diperbarui (kontras utama tidak berubah).
+- `rq1 gap` (GPU, ±20–30 menit kasar) belum dijalankan.
+- Draf `rules/rq2_prespecification.md` (sudah memuat sensitivitas) menunggu tinjauan pengguna sebelum di-commit.
 - Verifikasi manusia untuk SLR-M (`/data/Smart-X/SLR-RA/slr-methods/verification/`) belum dikerjakan.

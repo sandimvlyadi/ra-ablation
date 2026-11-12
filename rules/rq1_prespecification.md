@@ -160,3 +160,22 @@ Ditulis dan di-commit sebelum run LP mana pun. Keputusan pengguna pada 2026-11-1
 | 1e-2 | 0,382 | 0,218 | 12 |
 
 1e-2 berada di tepi atas grid, jadi lr yang lebih besar mungkin lebih baik lagi. Grid tidak diperluas karena sudah dikunci sebelum tuning. Batasan ini dicatat di laporan.
+
+## Adendum 2 (2026-11-13): analisis sensitivitas pembanding "metode terbaik"
+Keputusan pengguna pada 2026-11-13 (opsi a + sensitivitas). **Analisis utama tidak berubah**: "metode terbaik yang sudah ada" tetap dipilih dengan rata-rata BACC4 validasi tertinggi, dan kontras F2/F3/F5 serta putusannya tetap memakai pilihan itu.
+
+**Kapan ditulis.** Setelah hasil validasi (dan test) RQ1-01…06 dan RQ1-17a/b terlihat, tetapi sebelum run arm modifikasi mana pun (RQ1-13, 15, 16), sebelum RQ1-18b, dan sebelum pilihan "metode terbaik" final. Pemicunya adalah pilihan sementara pada 10% label, yaitu Scratch ResNet34. Arm ini unggul di val BACC4 (0,423 vs 0,416 rujukan), tetapi val QWK-nya 0,045 (rujukan 0,238), jadi prediksinya hampir tidak ordinal.
+
+**Pembanding sensitivitas: "metode terbaik dengan QWK validasi ≥ rujukan".**
+- **Kandidat:** sama dengan analisis utama, yaitu RQ0-01, RQ1-01…08, 10, 12, 14, 18b. Untuk kontras SKELEX, RQ1-18b dikeluarkan, sama seperti analisis utama.
+- **Gate:** per fraksi label, kandidat lolos kalau rata-rata val QWK-nya ≥ rata-rata val QWK RQ0-01 pada fraksi yang sama (dibandingkan sampai 3 desimal). RQ0-01 selalu lolos.
+- **Pilihan:** di antara yang lolos, rata-rata BACC4 validasi tertinggi, dengan aturan seri yang sama (urutan kandidat).
+- Pilihan ini juga sementara selama ada kandidat yang belum selesai, dan dicatat bertanggal di `STATUS.md` bersama pilihan utama.
+
+**Kontras sensitivitas.** Setiap kontras yang memakai "metode terbaik" dihitung ulang dengan pembanding sensitivitas: RQ1-18b (F2), RQ1-13 dan RQ1-15 (F3), dan RQ1-16 (F5, bila dijalankan). Kalau pembanding sensitivitas sama dengan pilihan utama, kontrasnya tidak dihitung ulang dan dilaporkan "sama dengan analisis utama".
+
+**Pelaporan.**
+- Sekunder: selisih BACC4, 95% CI, dan p mentah. **Tanpa koreksi Holm dan tanpa label putusan.** Kontras ini tidak masuk keluarga mana pun, sehingga ukuran F2/F3/F5 tidak berubah.
+- Klaim "modifikasi lebih baik" tetap hanya berdasarkan analisis utama. Kalau arah atau signifikansi nominal (p mentah < 0,05) analisis sensitivitas berbeda dengan analisis utama, perbedaan itu disebutkan di kesimpulan.
+
+**Kode:** `rq1.py: select(qwk_floor_arm=)`, `selections()`, `sensitivity()`. Test: `tests/test_rq1_analysis.py`.

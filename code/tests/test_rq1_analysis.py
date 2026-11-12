@@ -13,7 +13,7 @@ NAMES = {'rq0-01': 'resnet34', 'rq1-01': 'resnet34_scratch', 'rq1-02': 'resnet34
          'rq1-17b': 'resnet34_imagenet_lpft'}
 
 
-def write_run(folder, shift, seed, val, n=120):
+def write_run(folder, shift, seed, val, n=120, qwk=0.3):
     folder.mkdir(parents=True)
     rng = np.random.default_rng(seed)
     gt = np.tile([0, 0, 0, 1, 1, 2, 3, 5], n // 8)
@@ -21,15 +21,15 @@ def write_run(folder, shift, seed, val, n=120):
     pd.DataFrame({'case': [f'c{i // 4}' for i in range(len(gt))], 'patient': [f'P{i % 12}' for i in range(len(gt))],
                   'joint': [JOINTS[i % 4] for i in range(len(gt))], 'gt': gt, 'pred': pred}
                  ).to_csv(folder / 'test_predictions.csv', index=False)
-    (folder / 'metrics.json').write_text(json.dumps({'best_epoch': 10, 'val': {'bacc4': val, 'qwk': 0.3},
+    (folder / 'metrics.json').write_text(json.dumps({'best_epoch': 10, 'val': {'bacc4': val, 'qwk': qwk},
                                                      'test': {'bacc4': val - 0.01}}))
 
 
-def make_arm(root, arm, shift=0.1, val=0.4, fracs=('1.0', '0.1')):
+def make_arm(root, arm, shift=0.1, val=0.4, fracs=('1.0', '0.1'), qwk=0.3):
     sub = 'rq0' if arm.startswith('rq0') else 'rq1'
     for frac in fracs:
         for d, s in DESIGNS[frac]:
-            write_run(root / sub / f'{arm}_{NAMES.get(arm, "resnet34_x")}_b2_f{frac}_d{d}_s{s}', shift, s + d, val)
+            write_run(root / sub / f'{arm}_{NAMES.get(arm, "resnet34_x")}_b2_f{frac}_d{d}_s{s}', shift, s + d, val, qwk=qwk)
 
 
 @pytest.fixture
@@ -96,3 +96,49 @@ def test_summary_reports_test_minus_validation(runs):
 def test_report_renders(runs):
     text = rq1.report(rq1.analyse(runs, n_boot=20))
     assert 'Post hoc' in text and 'Holm atas 16 kontras' in text and 'tidak dijalankan' in text
+
+
+def test_qwk_gate_excludes_a_high_bacc4_arm_with_low_qwk(tmp_path):
+    make_arm(tmp_path, 'rq0-01', val=0.40, qwk=0.24)
+    make_arm(tmp_path, 'rq1-01', val=0.45, qwk=0.05)     # wins on BACC4, not ordinal
+    make_arm(tmp_path, 'rq1-02', val=0.42, qwk=0.2401)   # equal to the floor at 3 decimals: passes
+    cands = ('rq0-01', 'rq1-01', 'rq1-02')
+    assert rq1.select(tmp_path, cands, ('0.1',))['arm'] == 'rq1-01'
+    gated = rq1.select(tmp_path, cands, ('0.1',), qwk_floor_arm='rq0-01')
+    assert gated['arm'] == 'rq1-02' and gated['excluded'] == ['rq1-01'] and gated['qwk_floor'] == pytest.approx(0.24)
+    make_arm(tmp_path / 'b', 'rq1-01', val=0.45, qwk=0.05)   # floor arm missing: no selection
+    assert rq1.select(tmp_path / 'b', cands, ('0.1',), qwk_floor_arm='rq0-01')['provisional']
+
+
+def finish_best_candidates(root, skip=()):
+    for arm in rq1.BEST_CANDIDATES:
+        if arm not in skip and not list(root.glob(f'rq*/{arm}_*')):
+            make_arm(root, arm, shift=0.0, val=0.30)
+
+
+def test_sensitivity_rows_raw_p_only_and_families_unchanged(runs):
+    finish_best_candidates(runs)
+    make_arm(runs, 'rq1-13', shift=0.2, val=0.4)
+    res = rq1.analyse(runs, n_boot=50)
+    assert {k: len(v) for k, v in res['families'].items()} == {'F1': 16, 'F2': 14, 'F3': 8, 'F4': 10}
+    sens = res['sensitivity']
+    assert len(sens) == 6 and {r['family'] for r in sens} == {'F2', 'F3'}
+    assert all('p_holm' not in r.get('bacc4', {}) and 'verdict' not in r for r in sens)
+    rows = {(r['arm'], r['frac']): r for r in sens}
+    assert res['selections']['best_existing_qwk_1.0']['arm'] == 'rq1-05'
+    assert rows[('rq1-13', '1.0')]['status'] == 'sama dengan analisis utama'
+
+
+def test_sensitivity_differs_from_primary_when_the_winner_fails_the_gate(tmp_path):
+    make_arm(tmp_path, 'rq0-01', val=0.40, qwk=0.24)
+    make_arm(tmp_path, 'rq1-01', val=0.50, qwk=0.05)
+    make_arm(tmp_path, 'rq1-02', val=0.42, qwk=0.30)
+    finish_best_candidates(tmp_path)
+    make_arm(tmp_path, 'rq1-13', shift=0.2, val=0.4)
+    res = rq1.analyse(tmp_path, n_boot=50)
+    primary = [r for r in res['families']['F3'] if r['arm'] == 'rq1-13' and r['base_key'] == rq1.BEST]
+    assert all(r['base'] == 'rq1-01' and r['status'] == 'dihitung' for r in primary)
+    sens = [r for r in res['sensitivity'] if r['arm'] == 'rq1-13']
+    assert all(r['base'] == 'rq1-02' and r['status'] == 'dihitung' and 0 <= r['bacc4']['p'] <= 1 for r in sens)
+    text = rq1.report(res)
+    assert 'Analisis sensitivitas' in text and 'tidak lolos gate: Scratch ResNet34' in text

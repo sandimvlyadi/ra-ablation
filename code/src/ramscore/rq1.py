@@ -16,6 +16,10 @@ Selections use the mean validation BACC4 of the arm's runs, never test. "Best ex
 among the finished candidates; "best SSL" over the 6 runs of each candidate. A selection is provisional while any
 candidate has not finished, and contrasts that depend on a provisional selection are not computed.
 
+Sensitivity (addendum 2, 2026-11-13): every contrast against "best existing" is repeated against the best candidate
+whose mean validation QWK is at least that of RQ0-01 at the same fraction. Raw p only, no Holm, no verdict; the
+families and the claims rest on the primary selection.
+
 Secondary (no correction): QWK and hand-total ICC differences, recall per grade, share of grade-0 predictions,
 validation BACC4/QWK, selected epoch, mean test - validation BACC4 (descriptive check of test optimism), and the
 train - validation gap of the selected checkpoint (`gap`, GPU, as e8.py gap).
@@ -40,7 +44,11 @@ ALPHA = 0.05
 BEST = 'best_existing'
 BEST_NO_SKELEX = 'best_existing_no_skelex'
 BEST_SSL = 'best_ssl'
-SELECTIONS = (BEST, BEST_NO_SKELEX, BEST_SSL)
+BEST_QWK = 'best_existing_qwk'
+BEST_NO_SKELEX_QWK = 'best_existing_no_skelex_qwk'
+SELECTIONS = (BEST, BEST_NO_SKELEX, BEST_SSL, BEST_QWK, BEST_NO_SKELEX_QWK)
+SENSITIVITY = {BEST: BEST_QWK, BEST_NO_SKELEX: BEST_NO_SKELEX_QWK}   # primary selection -> addendum-2 comparator
+QWK_FLOOR_ARM = 'rq0-01'
 
 LABELS = {
     'rq0-01': 'ImageNet ResNet34 (rujukan)',
@@ -65,7 +73,8 @@ LABELS = {
     'rq1-18b': 'SKELEX ViT-L fine-tune (LLRD)',
 }
 SELECTION_LABELS = {BEST: 'metode terbaik yang sudah ada', BEST_NO_SKELEX: 'metode terbaik selain SKELEX',
-                    BEST_SSL: 'SSL terbaik'}
+                    BEST_SSL: 'SSL terbaik', BEST_QWK: 'metode terbaik dengan QWK val ≥ rujukan',
+                    BEST_NO_SKELEX_QWK: 'metode terbaik selain SKELEX dengan QWK val ≥ rujukan'}
 # Candidates fixed in the prespecification: priority-A existing methods with full fine-tuning.
 BEST_CANDIDATES = ('rq0-01', 'rq1-01', 'rq1-02', 'rq1-03', 'rq1-04', 'rq1-05', 'rq1-06', 'rq1-07', 'rq1-08', 'rq1-10',
                    'rq1-12', 'rq1-14', 'rq1-18b')
@@ -116,25 +125,34 @@ def run_summary(pattern):
             'best_epoch': float(np.mean([m['best_epoch'] for m in ms]))}
 
 
-def select(root, candidates, fracs, expected=3):
+def select(root, candidates, fracs, expected=3, qwk_floor_arm=None):
     """Arm with the highest mean validation BACC4 over its runs at the given fractions (ties: earlier candidate).
-    Provisional while a candidate has fewer than the expected runs per fraction."""
-    scores, missing = {}, []
+    With qwk_floor_arm (a candidate), only arms whose mean validation QWK is at least that arm's (3 decimals) are
+    eligible (addendum 2). Provisional while a candidate has fewer than the expected runs per fraction."""
+    scores, qwks, missing = {}, {}, []
     for arm in candidates:
-        vals = [m['val']['bacc4'] for f in fracs for m in run_metrics(arm_glob(root, arm, f))]
-        if len(vals) < expected * len(fracs):
+        ms = [m for f in fracs for m in run_metrics(arm_glob(root, arm, f))]
+        if len(ms) < expected * len(fracs):
             missing.append(arm)
-        if vals:
-            scores[arm] = float(np.mean(vals))
-    best = max(scores, key=lambda a: (round(scores[a], 3), -candidates.index(a))) if scores else None
-    return {'arm': best, 'scores': scores, 'missing': missing, 'provisional': bool(missing) or best is None}
+        if ms:
+            scores[arm] = float(np.mean([m['val']['bacc4'] for m in ms]))
+            qwks[arm] = float(np.mean([m['val']['qwk'] for m in ms]))
+    floor = qwks.get(qwk_floor_arm) if qwk_floor_arm else None
+    eligible = [a for a in scores if qwk_floor_arm is None or (floor is not None and round(qwks[a], 3) >= round(floor, 3))]
+    best = max(eligible, key=lambda a: (round(scores[a], 3), -candidates.index(a))) if eligible else None
+    return {'arm': best, 'scores': scores, 'qwk': qwks, 'qwk_floor': floor,
+            'excluded': [a for a in scores if a not in eligible], 'missing': missing,
+            'provisional': bool(missing) or best is None}
 
 
 def selections(root):
     out = {}
+    no_skelex = tuple(a for a in BEST_CANDIDATES if a != 'rq1-18b')
     for frac in FRACTIONS:
         out[f'{BEST}_{frac}'] = select(root, BEST_CANDIDATES, (frac,))
-        out[f'{BEST_NO_SKELEX}_{frac}'] = select(root, tuple(a for a in BEST_CANDIDATES if a != 'rq1-18b'), (frac,))
+        out[f'{BEST_NO_SKELEX}_{frac}'] = select(root, no_skelex, (frac,))
+        out[f'{BEST_QWK}_{frac}'] = select(root, BEST_CANDIDATES, (frac,), qwk_floor_arm=QWK_FLOOR_ARM)
+        out[f'{BEST_NO_SKELEX_QWK}_{frac}'] = select(root, no_skelex, (frac,), qwk_floor_arm=QWK_FLOOR_ARM)
     ssl = select(root, SSL_CANDIDATES, FRACTIONS)
     for frac in FRACTIONS:
         out[f'{BEST_SSL}_{frac}'] = ssl
@@ -171,10 +189,35 @@ def family(root, pairs, sel, n_boot):
     return rows
 
 
+def sensitivity(root, sel, n_boot):
+    """Addendum 2: contrasts against "best existing" repeated against the QWK-gated selection; raw p, no Holm."""
+    rows = []
+    for fam, pairs in FAMILIES.items():
+        for variant, primary in pairs:
+            if primary not in SENSITIVITY:
+                continue
+            for frac in FRACTIONS:
+                arm, why = resolve(SENSITIVITY[primary], frac, sel)
+                main_arm, _ = resolve(primary, frac, sel)
+                row = {'family': fam, 'arm': variant, 'base_key': SENSITIVITY[primary], 'base': arm, 'frac': frac}
+                pair = paired(arm_glob(root, variant, frac), arm_glob(root, arm, frac)) if arm else None
+                if arm is not None and arm == main_arm:
+                    row.update(status='sama dengan analisis utama', reason=f'pembanding = {label(arm)}')
+                elif arm is not None and arm == variant:
+                    row.update(status='tidak dijalankan', reason='arm terpilih sama dengan arm yang diuji')
+                elif pair is None:
+                    row.update(status='tidak dijalankan', reason=why or 'arm belum dijalankan')
+                else:
+                    row.update(status='dihitung', **contrast(*pair, n_boot, icc=True))
+                rows.append(row)
+    return rows
+
+
 def analyse(root, n_boot=10000):
     root = Path(root)
     sel = selections(root)
     families = {k: family(root, pairs, sel, n_boot) for k, pairs in FAMILIES.items()}
+    sens = sensitivity(root, sel, n_boot)
     predictions, summaries = [], []
     for frac in FRACTIONS:
         for arm in LABELS:
@@ -184,7 +227,8 @@ def analyse(root, n_boot=10000):
             s = run_summary(arm_glob(root, arm, frac))
             if s:
                 summaries.append({'frac': frac, 'arm': arm, **s})
-    return {'selections': sel, 'families': families, 'predictions': predictions, 'summaries': summaries}
+    return {'selections': sel, 'families': families, 'sensitivity': sens, 'predictions': predictions,
+            'summaries': summaries}
 
 
 def gap(root, device='cuda', workers=4):
@@ -217,6 +261,28 @@ def fmt_contrast(r):
             f"{q['diff']:+.3f} | {q['p']:.3f} | {i['diff']:+.3f} | {i['p']:.3f} |")
 
 
+def selection_line(key, s):
+    name, frac = key.rsplit('_', 1)
+    title = SELECTION_LABELS[name][0].upper() + SELECTION_LABELS[name][1:] + (' (6 run, kedua fraksi)' if name == BEST_SSL else f', {float(frac):.0%}')
+    state = 'sementara' if s['provisional'] else 'final'
+    ranking = ', '.join(f"{label(a)} {v:.3f}" for a, v in sorted(s['scores'].items(), key=lambda kv: -kv[1]))
+    missing = f" Belum selesai: {', '.join(s['missing'])}." if s['missing'] else ''
+    gate = ''
+    if s.get('qwk_floor') is not None:
+        out = ', '.join(f"{label(a)} (QWK {s['qwk'][a]:.3f})" for a in s['excluded']) or 'tidak ada'
+        gate = f" QWK val rujukan {s['qwk_floor']:.3f}; tidak lolos gate: {out}."
+    return f"- **{title}** ({state}): {label(s['arm'])}. Urutan BACC4: {ranking}.{gate}{missing}"
+
+
+def fmt_sensitivity(r):
+    frac = f"{float(r['frac']):.0%}"
+    if r['status'] != 'dihitung':
+        return f"| {frac} | {label(r['arm'])} | {label(r['base'] or r['base_key'])} | — | — | — | — | — | {r['status']} ({r['reason']}) |"
+    a = r['bacc4']
+    return (f"| {frac} | {label(r['arm'])} | {label(r['base'])} | {r['runs']} | {a['base']:.3f} | {a['variant']:.3f} | "
+            f"{a['diff']:+.3f} [{a['ci'][0]:+.3f}, {a['ci'][1]:+.3f}] | {a['p']:.3f} | dihitung |")
+
+
 def report(results, gaps=None):
     lines = ['# RQ1: pre-training dan SSL vs inisialisasi ImageNet', '',
              '*Post hoc*: test RAM-H1200 sudah dipakai di repo lama, sehingga hasil ini tidak dipakai untuk memilih '
@@ -229,18 +295,21 @@ def report(results, gaps=None):
              'sebanding langsung dengan E2/E6. Encoder SSL E1 melihat citra val tanpa label.', '',
              '## Pilihan berbasis validasi (rata-rata BACC4 validasi)', '']
     for key in [f'{BEST}_{f}' for f in FRACTIONS] + [f'{BEST_NO_SKELEX}_{f}' for f in FRACTIONS] + [f'{BEST_SSL}_1.0']:
-        name, frac = key.rsplit('_', 1)
-        s = results['selections'][key]
-        title = SELECTION_LABELS[name][0].upper() + SELECTION_LABELS[name][1:] + (' (6 run, kedua fraksi)' if name == BEST_SSL else f', {float(frac):.0%}')
-        state = 'sementara' if s['provisional'] else 'final'
-        ranking = ', '.join(f"{label(a)} {v:.3f}" for a, v in sorted(s['scores'].items(), key=lambda kv: -kv[1]))
-        missing = f" Belum selesai: {', '.join(s['missing'])}." if s['missing'] else ''
-        lines.append(f"- **{title}** ({state}): {label(s['arm'])}. Urutan: {ranking}.{missing}")
+        lines.append(selection_line(key, results['selections'][key]))
     for fam, rows in results['families'].items():
         lines += ['', f'## {FAMILY_TITLES[fam]} (Holm atas {len(rows)} kontras)', '',
                   '| Label | Arm | Pembanding | Run | BACC4 pembanding | BACC4 arm | Selisih [95% CI] | p mentah | Holm p | Putusan | '
                   'Selisih QWK | p | Selisih ICC | p |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
         lines += [fmt_contrast(r) for r in rows]
+    lines += ['', '## Analisis sensitivitas: pembanding "metode terbaik" dengan QWK validasi ≥ rujukan', '',
+              'Adendum 2 (2026-11-13). Sekunder: p mentah, tanpa Holm dan tanpa putusan; klaim tetap berdasarkan '
+              'analisis utama di atas. Pembanding dipilih dengan BACC4 validasi di antara kandidat yang rata-rata QWK '
+              'validasinya ≥ rujukan ImageNet ResNet34 pada fraksi yang sama.', '']
+    for key in [f'{k}_{f}' for k in (BEST_QWK, BEST_NO_SKELEX_QWK) for f in FRACTIONS]:
+        lines.append(selection_line(key, results['selections'][key]))
+    lines += ['', '| Label | Arm | Pembanding | Run | BACC4 pembanding | BACC4 arm | Selisih [95% CI] | p mentah | Status |',
+              '|---|---|---|---|---|---|---|---|---|']
+    lines += [fmt_sensitivity(r) for r in results['sensitivity']]
     lines += ['', '## Validasi, test, dan epoch terpilih (rata-rata run)', '',
               'Kolom test − val adalah cek deskriptif optimisme test, bukan uji. Validasi hanya 36 pasien.', '',
               '| Label | Arm | Run | Val BACC4 | Val QWK | Test BACC4 | Test − val | Epoch terpilih |',

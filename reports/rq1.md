@@ -6,11 +6,11 @@ ImageNet ViT-S memakai `augreg_in1k` (ImageNet-1k), bukan in21k seperti E2/E6, j
 
 ## Pilihan berbasis validasi (rata-rata BACC4 validasi)
 
-- **Metode terbaik yang sudah ada, 100%** (sementara): Scratch ResNet34. Urutan: Scratch ResNet34 0.554, DINO ResNet34 0.501, DINO ViT-S (LLRD) 0.500, MAE ViT-S (LLRD) 0.499, ImageNet ViT-S (LLRD) 0.481, ImageNet ResNet34 (rujukan) 0.476, DINO + ChronoCon ResNet34 0.473. Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b.
-- **Metode terbaik yang sudah ada, 10%** (sementara): Scratch ResNet34. Urutan: Scratch ResNet34 0.423, ImageNet ResNet34 (rujukan) 0.416, DINO ResNet34 0.401, ImageNet ViT-S (LLRD) 0.391, MAE ViT-S (LLRD) 0.380, DINO + ChronoCon ResNet34 0.379, DINO ViT-S (LLRD) 0.343. Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b.
-- **Metode terbaik selain SKELEX, 100%** (sementara): Scratch ResNet34. Urutan: Scratch ResNet34 0.554, DINO ResNet34 0.501, DINO ViT-S (LLRD) 0.500, MAE ViT-S (LLRD) 0.499, ImageNet ViT-S (LLRD) 0.481, ImageNet ResNet34 (rujukan) 0.476, DINO + ChronoCon ResNet34 0.473. Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14.
-- **Metode terbaik selain SKELEX, 10%** (sementara): Scratch ResNet34. Urutan: Scratch ResNet34 0.423, ImageNet ResNet34 (rujukan) 0.416, DINO ResNet34 0.401, ImageNet ViT-S (LLRD) 0.391, MAE ViT-S (LLRD) 0.380, DINO + ChronoCon ResNet34 0.379, DINO ViT-S (LLRD) 0.343. Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14.
-- **SSL terbaik (6 run, kedua fraksi)** (sementara): DINO ResNet34. Urutan: DINO ResNet34 0.451, MAE ViT-S (LLRD) 0.440, DINO + ChronoCon ResNet34 0.426, DINO ViT-S (LLRD) 0.422. Belum selesai: rq1-08, rq1-10.
+- **Metode terbaik yang sudah ada, 100%** (sementara): Scratch ResNet34. Urutan BACC4: Scratch ResNet34 0.554, DINO ResNet34 0.501, DINO ViT-S (LLRD) 0.500, MAE ViT-S (LLRD) 0.499, ImageNet ViT-S (LLRD) 0.481, ImageNet ResNet34 (rujukan) 0.476, DINO + ChronoCon ResNet34 0.473. Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b.
+- **Metode terbaik yang sudah ada, 10%** (sementara): Scratch ResNet34. Urutan BACC4: Scratch ResNet34 0.423, ImageNet ResNet34 (rujukan) 0.416, DINO ResNet34 0.401, ImageNet ViT-S (LLRD) 0.391, MAE ViT-S (LLRD) 0.380, DINO + ChronoCon ResNet34 0.379, DINO ViT-S (LLRD) 0.343. Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b.
+- **Metode terbaik selain SKELEX, 100%** (sementara): Scratch ResNet34. Urutan BACC4: Scratch ResNet34 0.554, DINO ResNet34 0.501, DINO ViT-S (LLRD) 0.500, MAE ViT-S (LLRD) 0.499, ImageNet ViT-S (LLRD) 0.481, ImageNet ResNet34 (rujukan) 0.476, DINO + ChronoCon ResNet34 0.473. Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14.
+- **Metode terbaik selain SKELEX, 10%** (sementara): Scratch ResNet34. Urutan BACC4: Scratch ResNet34 0.423, ImageNet ResNet34 (rujukan) 0.416, DINO ResNet34 0.401, ImageNet ViT-S (LLRD) 0.391, MAE ViT-S (LLRD) 0.380, DINO + ChronoCon ResNet34 0.379, DINO ViT-S (LLRD) 0.343. Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14.
+- **SSL terbaik (6 run, kedua fraksi)** (sementara): DINO ResNet34. Urutan BACC4: DINO ResNet34 0.451, MAE ViT-S (LLRD) 0.440, DINO + ChronoCon ResNet34 0.426, DINO ViT-S (LLRD) 0.422. Belum selesai: rq1-08, rq1-10.
 
 ## F1: pre-training / SSL vs rujukan ImageNet ResNet34 (Holm atas 16 kontras)
 
@@ -79,6 +79,24 @@ ImageNet ViT-S memakai `augreg_in1k` (ImageNet-1k), bukan in21k seperti E2/E6, j
 | 10% | LP-FT SSL terbaik | SSL terbaik | — | — | — | — | — | — | tidak dijalankan (pilihan validasi belum final; kandidat belum selesai: rq1-08, rq1-10) | — | — | — | — |
 | 100% | SKELEX ViT-L linear probe | SKELEX ViT-L fine-tune (LLRD) | — | — | — | — | — | — | tidak dijalankan (arm belum dijalankan) | — | — | — | — |
 | 10% | SKELEX ViT-L linear probe | SKELEX ViT-L fine-tune (LLRD) | — | — | — | — | — | — | tidak dijalankan (arm belum dijalankan) | — | — | — | — |
+
+## Analisis sensitivitas: pembanding "metode terbaik" dengan QWK validasi ≥ rujukan
+
+Adendum 2 (2026-11-13). Sekunder: p mentah, tanpa Holm dan tanpa putusan; klaim tetap berdasarkan analisis utama di atas. Pembanding dipilih dengan BACC4 validasi di antara kandidat yang rata-rata QWK validasinya ≥ rujukan ImageNet ResNet34 pada fraksi yang sama.
+
+- **Metode terbaik dengan QWK val ≥ rujukan, 100%** (sementara): DINO ResNet34. Urutan BACC4: Scratch ResNet34 0.554, DINO ResNet34 0.501, DINO ViT-S (LLRD) 0.500, MAE ViT-S (LLRD) 0.499, ImageNet ViT-S (LLRD) 0.481, ImageNet ResNet34 (rujukan) 0.476, DINO + ChronoCon ResNet34 0.473. QWK val rujukan 0.415; tidak lolos gate: Scratch ResNet34 (QWK 0.353), DINO + ChronoCon ResNet34 (QWK 0.357), ImageNet ViT-S (LLRD) (QWK 0.390), MAE ViT-S (LLRD) (QWK 0.389), DINO ViT-S (LLRD) (QWK 0.348). Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b.
+- **Metode terbaik dengan QWK val ≥ rujukan, 10%** (sementara): ImageNet ResNet34 (rujukan). Urutan BACC4: Scratch ResNet34 0.423, ImageNet ResNet34 (rujukan) 0.416, DINO ResNet34 0.401, ImageNet ViT-S (LLRD) 0.391, MAE ViT-S (LLRD) 0.380, DINO + ChronoCon ResNet34 0.379, DINO ViT-S (LLRD) 0.343. QWK val rujukan 0.238; tidak lolos gate: Scratch ResNet34 (QWK 0.045), DINO + ChronoCon ResNet34 (QWK 0.199), MAE ViT-S (LLRD) (QWK 0.237), DINO ViT-S (LLRD) (QWK 0.177). Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b.
+- **Metode terbaik selain SKELEX dengan QWK val ≥ rujukan, 100%** (sementara): DINO ResNet34. Urutan BACC4: Scratch ResNet34 0.554, DINO ResNet34 0.501, DINO ViT-S (LLRD) 0.500, MAE ViT-S (LLRD) 0.499, ImageNet ViT-S (LLRD) 0.481, ImageNet ResNet34 (rujukan) 0.476, DINO + ChronoCon ResNet34 0.473. QWK val rujukan 0.415; tidak lolos gate: Scratch ResNet34 (QWK 0.353), DINO + ChronoCon ResNet34 (QWK 0.357), ImageNet ViT-S (LLRD) (QWK 0.390), MAE ViT-S (LLRD) (QWK 0.389), DINO ViT-S (LLRD) (QWK 0.348). Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14.
+- **Metode terbaik selain SKELEX dengan QWK val ≥ rujukan, 10%** (sementara): ImageNet ResNet34 (rujukan). Urutan BACC4: Scratch ResNet34 0.423, ImageNet ResNet34 (rujukan) 0.416, DINO ResNet34 0.401, ImageNet ViT-S (LLRD) 0.391, MAE ViT-S (LLRD) 0.380, DINO + ChronoCon ResNet34 0.379, DINO ViT-S (LLRD) 0.343. QWK val rujukan 0.238; tidak lolos gate: Scratch ResNet34 (QWK 0.045), DINO + ChronoCon ResNet34 (QWK 0.199), MAE ViT-S (LLRD) (QWK 0.237), DINO ViT-S (LLRD) (QWK 0.177). Belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14.
+
+| Label | Arm | Pembanding | Run | BACC4 pembanding | BACC4 arm | Selisih [95% CI] | p mentah | Status |
+|---|---|---|---|---|---|---|---|---|
+| 100% | SKELEX ViT-L fine-tune (LLRD) | metode terbaik selain SKELEX dengan QWK val ≥ rujukan | — | — | — | — | — | tidak dijalankan (pilihan validasi belum final; kandidat belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14) |
+| 10% | SKELEX ViT-L fine-tune (LLRD) | metode terbaik selain SKELEX dengan QWK val ≥ rujukan | — | — | — | — | — | tidak dijalankan (pilihan validasi belum final; kandidat belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14) |
+| 100% | SupCon berbobot jarak grade ResNet34 (modifikasi) | metode terbaik dengan QWK val ≥ rujukan | — | — | — | — | — | tidak dijalankan (pilihan validasi belum final; kandidat belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b) |
+| 10% | SupCon berbobot jarak grade ResNet34 (modifikasi) | metode terbaik dengan QWK val ≥ rujukan | — | — | — | — | — | tidak dijalankan (pilihan validasi belum final; kandidat belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b) |
+| 100% | Gate normalitas 0 vs ≥1 ResNet34 (modifikasi) | metode terbaik dengan QWK val ≥ rujukan | — | — | — | — | — | tidak dijalankan (pilihan validasi belum final; kandidat belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b) |
+| 10% | Gate normalitas 0 vs ≥1 ResNet34 (modifikasi) | metode terbaik dengan QWK val ≥ rujukan | — | — | — | — | — | tidak dijalankan (pilihan validasi belum final; kandidat belum selesai: rq1-07, rq1-08, rq1-10, rq1-12, rq1-14, rq1-18b) |
 
 ## Validasi, test, dan epoch terpilih (rata-rata run)
 

@@ -64,8 +64,9 @@ def analyse(root, n_boot=10000):
     return {'primary': primary, 'supporting': supporting, 'predictions': predictions}
 
 
-def gap(root, device='cuda', workers=4):
-    """BACC4 and QWK of the selected checkpoint on the unaugmented train and validation joints of its own design."""
+def gap(root, device='cuda', workers=4, runs=None):
+    """BACC4 and QWK of the selected checkpoint on the unaugmented train and validation joints of its own design.
+    runs: run folders to score (default: every E8 run under root/e8)."""
     import torch
     from torch.utils.data import DataLoader
 
@@ -75,8 +76,9 @@ def gap(root, device='cuda', workers=4):
     from .train import predict
 
     rows = []
-    for run in sorted(Path(root, 'e8').glob('e8_*/model_best.pt')):
-        run = run.parent
+    if runs is None:
+        runs = [p.parent for p in sorted(Path(root, 'e8').glob('e8_*/model_best.pt'))]
+    for run in runs:
         args = json.loads((run / 'args.json').read_text())
         records = {s: load_records(args['data_root'], s) for s in ('train', 'val')}
         records['train'] = subsample_patients(records['train'], args['label_fraction'], args['fraction_seed'])

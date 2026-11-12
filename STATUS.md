@@ -38,14 +38,16 @@
 | 2026-11-11 | RQ1-17: lr linear probe dipilih di validasi dari {1e-4, 1e-3, 1e-2} (10% d0 s42, ImageNet ResNet34); tahap 2 LP-FT memakai resep FT penuh (lr 1e-4 / LLRD ViT) |
 | 2026-11-11 | Hasil tuning adendum 1 (validasi saja): lr linear probe = **1e-2** (val BACC4 0,382 vs 0,364 @1e-3 dan 0,330 @1e-4); tepi atas grid, grid tidak diperluas |
 | 2026-11-11 | RQ0 lolos uji reproduksi; antrean RQ1 utama (RQ1-01..06) diluncurkan |
+| 2026-11-12 | Modul analisis `rq1.py` ditulis; laporan RQ1 sementara (`reports/rq1.md`). Checkpoint smoke test sesi lama di `/tmp` (12 GB, kuota tmpfs penuh) dihapus, log/metrics smoke tetap |
 
 ## Langkah berikutnya
 1. ~~Antrean RQ0~~ selesai 2026-11-11 08:33 (12/12 run).
 2. ~~Analisis RQ0~~ selesai 2026-11-11: uji reproduksi identik dengan E8 `base` (prediksi identik 1,000 pada 6/6 run, selisih BACC4 0,000), jadi RQ1 tidak ditahan. ConvNeXt-Tiny − ResNet34: BACC4 +0,020 (100%) dan +0,018 (10%), Holm p = 0,392 untuk keduanya → tidak terbukti. Laporan: `reports/rq0.md`.
-3. **RQ1 `all` diluncurkan 2026-11-11 09:33 dengan izin** (36 run, ±13 jam kasar). Cek: `bash scripts/run_rq1.sh`. Perintah resume: `setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &` (±13 jam kasar).
+3. **RQ1 `all` diluncurkan 2026-11-11 09:33 dengan izin, selesai 20:37** (36 run, ±11 jam; total RQ1 51 run dengan `metrics.json`). Analisis sementara (RQ1-01…06, 17a/b) 2026-11-12: `reports/rq1.md`. Semua 16 kontras yang bisa dihitung "tidak terbukti" (Holm p = 1,000). Pilihan "metode terbaik" dan "SSL terbaik" masih sementara karena kandidat RQ1-07/08/10/12/14/18b belum dijalankan. Cek: `bash scripts/run_rq1.sh`. Perintah resume: `setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &` (±13 jam kasar).
 4. RQ1-17: tuning lr selesai (lr probe = 1e-2, `1b54a0e`). **`lp17` diluncurkan 2026-11-11 02:40 dengan izin, selesai 07:30 (12/12 run + 3 tuning).** Perintah resume: `LP_LR=1e-2 setsid nohup bash scripts/run_rq1.sh lp17 >> runs/rq1.log 2>&1 < /dev/null &` (12 run, ±3,8 jam kasar).
 5. Paralel tanpa GPU: kode SSL baru / RQ2 sesuai prioritas.
 6. Push ke remote kapan pun pengguna memutuskan.
 
 ## Pertanyaan terbuka untuk pengguna atau dosen
+- (2026-11-12) Kriteria "metode terbaik yang sudah ada" (val BACC4) sementara memilih Scratch ResNet34 (val QWK 10% = 0,045). Opsi: (a) biarkan sesuai aturan + catatan di laporan (saran), (b) adendum kriteria sebelum kandidat lain selesai. Belum diputuskan. `rq1 gap` (GPU, ±20–30 menit) belum dijalankan.
 - Verifikasi manusia untuk SLR-M (`/data/Smart-X/SLR-RA/slr-methods/verification/`) belum dikerjakan.

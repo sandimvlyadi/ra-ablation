@@ -90,6 +90,8 @@ uv run python -m ramscore.train --name rq0-01_resnet34_b2_f1.0_d0_s42 --out ../r
 |---|---|---|---|---|
 | Kontras arm vs pembanding (bootstrap pasien berpasangan, run diambil ulang, Holm) | 🛠 `uv run --group analysis python -m ramscore.rq<n>` (pola `e8.py: analyse()`) | `compare.py: load_runs()`, `bootstrap()`, `compare()`, `holm()`, `to_markdown()` | 🛠 `runs/rq<n>_analysis/report.md` + `.json`, disalin ke `reports/` | 🛠 |
 | RQ0: kontras primer + uji reproduksi vs E8 | `uv run --group analysis python -m ramscore.rq0 [--e8 <runs/e8 lama>]` | `rq0.py: analyse()` (memakai `e6abl.paired/contrast/add_holm`, `e7.prediction_stats`), `reproduction()`, `verdict()`, `report()` | `runs/rq0_analysis/report.md` + `rq0.json` (salin ke `reports/` setelah antrean selesai) | ✅ kode + 10 test (2026-11-11); menunggu run |
+| RQ1: keluarga Holm F1–F4 (ukuran tetap), pilihan berbasis validasi, test − val | `uv run --group analysis python -m ramscore.rq1` | `rq1.py: selections()`, `select()`, `resolve()`, `family()`, `analyse()`, `report()` (memakai `e6abl.paired/contrast/add_holm`, `e7.prediction_stats`) | `runs/rq1_analysis/report.md` + `rq1.json`, disalin ke `reports/rq1.md` | ✅ 2026-11-12 (RQ1-01…06, 17a/b) |
+| RQ1: celah train − val checkpoint terpilih (GPU, inferensi saja) | `uv run --group analysis python -m ramscore.rq1 gap` | `rq1.py: gap()` → `e8.py: gap(runs=…)` | `runs/rq1_analysis/gap.json` (dibaca otomatis oleh laporan) | 🛠 belum dijalankan |
 | Kontras ad hoc dari CLI | `uv run python -m ramscore.compare <baseline> <arm…> --pattern '../runs/rq<n>/{}_*_f1.0_*' --out <file>` | `compare.py: main()` | `<file>.json`, `<file>.md` | ✅ (kode lama) |
 
 ## 6. Flag dan modul baru (diisi saat dibuat)
@@ -97,3 +99,4 @@ uv run python -m ramscore.train --name rq0-01_resnet34_b2_f1.0_d0_s42 --out ../r
 |---|---|---|---|---|
 | 2026-11-11 | modul `rq0.py` | `rq0.py: analyse(), reproduction(), run_summary(), verdict(), report()` | RQ0-01, RQ0-02 | `tests/test_rq0.py` (10) |
 | 2026-11-11 | `--freeze-backbone` kini boleh dengan `--pretrained` (linear probe ImageNet); flag baru `--keep-head` (dengan `--init-from`: muat checkpoint lengkap termasuk kepala, tahap 2 LP-FT) | `train.py: check_init_args()`, `main()`; `models.py: load_full()` | RQ1-17a–d | `tests/test_rq1.py` (11); smoke LP → LP-FT: backbone LP = ImageNet persis, LP-FT mengubah backbone |
+| 2026-11-12 | modul `rq1.py`; `e8.gap()` menerima `runs=` (default tidak berubah) | `rq1.py: select(), selections(), resolve(), family(), analyse(), gap(), report()`; `e8.py: gap()` | RQ0-01, RQ1-* | `tests/test_rq1_analysis.py` (7) |

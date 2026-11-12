@@ -217,4 +217,46 @@ Ditulis sebelum pre-training atau run RQ1-08/10 mana pun. Kontras F1/F2 tidak be
 
 **Kode:** `ssl.py: SimCLR, BYOL, nt_xent(), byol_regression(), mlp()`; `pretrain.py: --method simclr|byol, --temperature`, `done.json` sebagai penanda selesai. Test: `tests/test_ssl_rq1.py`. Antrean: `scripts/run_rq1.sh ssl0810` (pre-training di `runs/rq1_pretrain/`, bisa di-resume dari checkpoint).
 
-**Biaya (kasar):** ±7 jam pre-training per metode (E1 DINO: ±7,3 jam), akan diukur ulang 1 epoch sebelum peluncuran, ditambah ±1,9 jam fine-tune per metode. Total ±18 jam.
+**Biaya (kasar):** diukur 2026-11-13: 1 epoch SimCLR 145 detik pada pool 28.923 ROI (5,6 GB VRAM), jadi ±4 jam per pre-training (BYOL kemungkinan sedikit lebih lama), ditambah ±1,9 jam fine-tune per metode. Total ±12–13 jam.
+
+## Adendum 5 (2026-11-13): RQ1-14 (model normalitas, M197 tahap 1) dan RQ1-15 (gate normalitas)
+Ditulis sebelum run RQ1-14/15 mana pun. Keputusan pengguna pada 2026-11-13: grade RQ1-14 dari skor saja dengan cut-point di validasi; RQ1-15 = skor sebagai gate di depan classifier rujukan. Kontras F1/F3 tidak berubah.
+
+**RQ1-14: SS-FewSOME (M197 tahap 1), diadaptasi.**
+- **Data latih:** hanya sendi grade 0 dari pasien train berlabel pada desain itu (10%: pasien hasil draw yang sama dengan arm lain). Tidak ada label grade lain yang dipakai saat pelatihan.
+- **Pasangan:** x_i dan x_j adalah dua sendi grade 0 yang berbeda. x_i mendapat augmentasi lemah (T_norm: brightness/contrast 0,1 p = 0,5; sharpen p = 0,5). x_j dibiarkan apa adanya (p = 0,5) atau diberi CutPaste (Li dkk., 2021; luas 2–15%, rasio aspek 0,3–3,3).
+- **Jaringan:** stem + layer1 + layer2 ResNet34 ImageNet (`resnet34.a1_in1k`, 1 kanal) → peta patch 128 × 28 × 28.
+- **Loss:** per posisi patch, ŷ = 1 − cos(p_i, p_j), BCE terhadap 1 kalau sel patch x_j beririsan dengan area tempelan, 0 kalau tidak (M197 persamaan 1–2). Label patch memakai irisan sel grid, bukan medan reseptif penuh.
+- **Optimasi:** Adam lr 1e-5, wd 0,1 (M197), batch 32, AMP, 20 epoch dan minimal 2.000 step, seed desain.
+- **Skor:** pusat normal = rata-rata embedding patch atas semua sendi grade 0 train (persamaan 3). Skor sendi = rata-rata jarak kosinus patch ke pusat (persamaan 4).
+- **Grade:** tiga cut-point c1 ≤ c2 ≤ c3 di antara kuantil 1%…99% skor validasi, dipilih dengan BACC4 validasi tertinggi (seri: triple terkecil). Prediksi grade 0, 1, 2, 3 (level ≥ 3 diberi grade 3).
+- **Penyimpangan dari M197** (dicatat di laporan): tanpa ensemble (K = 1, bukan 10); tanpa tahap 2 (pseudo-label + CLIP) dan tahap 3 (DCRL); backbone ResNet34 (M197: AlexNet/VGG-16); T_anom tanpa random crop-resize; batch 32 dan lr 1e-5 (M197: batch 1, lr 1e-6); N = semua sendi grade 0 train berlabel (M197: few-shot); grade dari cut-point (M197 melaporkan skor kontinu).
+
+**RQ1-15: skor normalitas sebagai gate (modifikasi).** Tanpa pelatihan. Untuk setiap desain: grade 0 kalau skor RQ1-14 ≤ t, selain itu grade dengan logit tertinggi di antara grade 1–5 dari classifier RQ0-01 dengan desain yang sama. t dipilih di antara kuantil 1%…99% skor validasi dengan BACC4 validasi tertinggi (seri: t terkecil). Pembanding F3 tetap: RQ1-14 (versi asli) dan metode terbaik.
+
+**Catatan bias pemilihan (dilaporkan, aturan tidak diubah).** Cut-point RQ1-14 dan ambang RQ1-15 disetel langsung untuk BACC4 validasi, sedangkan arm lain memilih checkpoint dengan QWK validasi. Akibatnya val BACC4 RQ1-14 lebih optimistis daripada arm lain saat pemilihan "metode terbaik". Kalau RQ1-14 terpilih sebagai metode terbaik, hal ini disebutkan di laporan, dan analisis sensitivitas adendum 2 (gate QWK) ikut dilaporkan.
+
+**Kode:** `normality.py` (`train`, `gate`, `choose_cutpoints()`, `choose_gate()`, `fewsome_loss()`, `cutpaste()`). Test: `tests/test_normality.py`. Antrean: `scripts/run_rq1.sh norm1415`.
+
+**Biaya (kasar):** ±0,5–1,5 jam untuk 6 run RQ1-14. RQ1-15 hanya inferensi (menit).
+
+## Adendum 6 (2026-11-13): resep RQ1-07 (pre-training antara regresi bone age RSNA, M005)
+Ditulis sebelum pre-training atau run RQ1-07 mana pun. Unduhan diizinkan pengguna pada 2026-11-13. Kontras F1 tidak berubah.
+
+- **Data:** Kaggle `kmader/rsna-bone-age` (zip 9,3 GB, 12.611 citra latih berlabel; `testzip` lulus). Setiap citra di-pad menjadi persegi, di-resize ke 512 × 512 grayscale (`boneage.py prepare`), sha256 per citra dicatat di `data/external/rsna-bone-age/png512/SHA256SUMS`, lalu zip dihapus (keputusan pengguna, karena disk). Set validasi challenge (1.425 citra) yang dipakai M005 tidak ada di salinan Kaggle ini. Karena itu 12.611 citra dibagi 90/10 secara acak dengan seed 2026.
+- **Model:** ResNet34 ImageNet (`resnet34.a1_in1k`, 1 kanal), satu keluaran regresi untuk bone age yang di-z-score (rerata dan SD dari bagian train). Tanpa input jenis kelamin.
+- **Resep (M005):** MSE, SGD lr 1e-3, momentum 0,9, wd 1e-3, 50 epoch. **Penyimpangan:** batch 16 (M005: 4; 16 juga diuji M005 untuk regresi), jadwal cosine ke 1%, input 384 × 384 (M005 tidak menyebut ukuran input), AMP, dan augmentasi `base` (ShiftScaleRotate ±10°, brightness/contrast).
+- **Encoder:** checkpoint dengan MAE validasi bone age terendah, sha256-nya disimpan. Kepala regresi dibuang saat fine-tune.
+- **Fine-tune:** resep RQ0-01 (balanced softmax, aug `base` di-seed, monitor val QWK), `--init-from`, 6 desain. Tidak ada strategi freeze, karena strategi fine-tuning adalah RQ1-17. Ini juga penyimpangan dari M005, yang menguji fine-tune penuh dan freeze lapisan awal.
+- **Kode:** `boneage.py` (`prepare`, `pretrain`, `pad_square()`, `split_ids()`). Test: `tests/test_boneage.py`. Antrean: `scripts/run_rq1.sh boneage07` (pre-training di `runs/rq1_pretrain/rq1-07_boneage_resnet34/`, bisa di-resume).
+- **Biaya (kasar):** diukur 2026-11-13: 1 epoch 91 detik (11.350 citra train, 1.261 val, 384 px), jadi ±1,3 jam pre-training, ditambah ±1,9 jam fine-tune.
+
+**λ SupCon terpilih (adendum 3, 2026-11-13): 1,0.** Diisi setelah 3 run tuning, sebelum run RQ1-12/13 utama pertama. Hanya validasi yang dibaca. BACC4 validasi pada checkpoint pilihan QWK:
+
+| λ | Val BACC4 | Val QWK | Epoch terpilih |
+|---|---|---|---|
+| 0,1 | 0,377 | 0,215 | 21 |
+| 0,5 | 0,379 | 0,201 | 27 |
+| 1,0 | 0,387 | 0,239 | 18 |
+
+1,0 berada di tepi atas grid. Grid tidak diperluas karena sudah dikunci sebelum tuning. Batasan ini dicatat di laporan.

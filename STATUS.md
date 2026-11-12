@@ -38,6 +38,8 @@
 | 2026-11-11 | RQ1-17: lr linear probe dipilih di validasi dari {1e-4, 1e-3, 1e-2} (10% d0 s42, ImageNet ResNet34); tahap 2 LP-FT memakai resep FT penuh (lr 1e-4 / LLRD ViT) |
 | 2026-11-11 | Hasil tuning adendum 1 (validasi saja): lr linear probe = **1e-2** (val BACC4 0,382 vs 0,364 @1e-3 dan 0,330 @1e-4); tepi atas grid, grid tidak diperluas |
 | 2026-11-11 | RQ0 lolos uji reproduksi; antrean RQ1 utama (RQ1-01..06) diluncurkan |
+| 2026-11-13 | Hasil tuning adendum 3 (validasi saja): **λ SupCon = 1,0** (val BACC4 0,387 vs 0,379 @0,5 dan 0,377 @0,1); tepi atas grid, grid tidak diperluas. Unduh SKELEX (HF `skhoha/SKELEX`, CC-BY-NC-ND-4.0) diizinkan dan selesai; commit + push adendum 5 + 6 diizinkan setelah smoke bone age |
+| 2026-11-13 | Insiden: `run_rq1.sh` diedit saat `tune12` berjalan; bash membaca skrip bertahap sehingga keluar dengan syntax error **setelah** 3 run tuning selesai (tidak ada run lain terpengaruh). Perbaikan: antrean kini menjalankan salinan beku di `runs/.queue_snapshots/` |
 | 2026-11-13 | RQ1-14 = M197 tahap 1 (SS-FewSOME pada sendi grade 0 train berlabel), grade dari skor saja dengan cut-point disetel di validasi; RQ1-15 = skor sebagai gate 0 vs ≥1 di atas classifier rujukan. Adendum 4 (SimCLR/BYOL) di-commit + push. Unduh RSNA Bone Age (Kaggle) diizinkan |
 | 2026-11-13 | "ya boleh luncurkan berkelanjutan, prio A dulu": Claude boleh meluncurkan setiap tahap RQ1 prio A sendiri setelah adendumnya di-commit dan smoke test lulus, dengan kabar setiap peluncuran. Commit/push dan unduhan (RSNA, SKELEX) belum diizinkan secara umum, jadi tetap ditanyakan. Prio B (09, 11, 16, 19) diputuskan nanti |
 | 2026-11-13 | RQ1-13 sudah dipublikasikan oleh M219 (negatif berbobot jarak grade, domain adaptation KL lutut): dilaporkan sebagai **adaptasi M219, tanpa klaim baru**. λ SupCon dipilih di validasi dari {0,1; 0,5; 1,0} (adendum 3) |
@@ -50,10 +52,12 @@
 2. ~~Analisis RQ0~~ selesai 2026-11-11: uji reproduksi identik dengan E8 `base` (prediksi identik 1,000 pada 6/6 run, selisih BACC4 0,000), jadi RQ1 tidak ditahan. ConvNeXt-Tiny − ResNet34: BACC4 +0,020 (100%) dan +0,018 (10%), Holm p = 0,392 untuk keduanya → tidak terbukti. Laporan: `reports/rq0.md`.
 3. **RQ1 `all` diluncurkan 2026-11-11 09:33 dengan izin, selesai 20:37** (36 run, ±11 jam; total RQ1 51 run dengan `metrics.json`). Analisis sementara (RQ1-01…06, 17a/b) 2026-11-12: `reports/rq1.md`. Semua 16 kontras yang bisa dihitung "tidak terbukti" (Holm p = 1,000). Pilihan "metode terbaik" dan "SSL terbaik" masih sementara karena kandidat RQ1-07/08/10/12/14/18b belum dijalankan. Cek: `bash scripts/run_rq1.sh`. Perintah resume: `setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &` (±13 jam kasar).
 4. RQ1-17: tuning lr selesai (lr probe = 1e-2, `1b54a0e`). **`lp17` diluncurkan 2026-11-11 02:40 dengan izin, selesai 07:30 (12/12 run + 3 tuning).** Perintah resume: `LP_LR=1e-2 setsid nohup bash scripts/run_rq1.sh lp17 >> runs/rq1.log 2>&1 < /dev/null &` (12 run, ±3,8 jam kasar).
-5. **RQ1-12/13 (SupCon):** kode + 19 test (pytest 259 passed), smoke antrean 15/15 (2026-11-13). 1 epoch 100% ±75 s (1,4× RQ0). Adendum 3 ditulis, belum di-commit. Berikutnya: commit adendum 3 → `tune12` (3 run, ±0,5 jam kasar) → catat λ → `SUPCON_W=<λ> … supcon12` (12 run, ±5,4 jam kasar). Perintah: `setsid nohup bash scripts/run_rq1.sh tune12 >> runs/rq1.log 2>&1 < /dev/null &`.
-6. **RQ1-08/10 (SimCLR, BYOL):** kode + 8 test, smoke antrean 12/12 (2026-11-13). Adendum 4 ditulis, belum di-commit. Ukur 1 epoch pre-training dulu (GPU kosong), lalu `ssl0810` (±18 jam kasar).
-7. Sisa kode RQ1 (prio A): bone age RSNA (unduh Kaggle, izin), SSL normalitas + gate, SKELEX (ukur 1 epoch; unduh bobot, izin), lalu RQ1-17c/d setelah "SSL terbaik" final, `rq1 gap`, analisis akhir.
-8. Push ke remote kapan pun pengguna memutuskan.
+5. **RQ1-12/13 (SupCon):** adendum 3 di-commit `829e3f2`; `tune12` selesai 2026-11-13 00:59, **λ = 1,0** (validasi). Berikutnya `SUPCON_W=1.0 … supcon12` (12 run, ±5,4 jam kasar).
+6. **RQ1-08/10 (SimCLR, BYOL):** adendum 4 di-commit `4bcf033`; 1 epoch SimCLR 145 s (±4 jam per pre-training). `ssl0810` ±12–13 jam kasar.
+7. **RQ1-14/15 (normalitas M197 + gate):** kode + 8 test, smoke 12/12 (2026-11-13), adendum 5.
+8. **RQ1-07 (bone age):** RSNA disiapkan (12.611 citra 512 px, zip dihapus), kode + 3 test, smoke 6/6, adendum 6; 1 epoch 91 s.
+9. Sisa kode RQ1 (prio A): SKELEX (bobot sudah diunduh ke `data/external/skelex/`; perlu loader timm + ukur 1 epoch), lalu RQ1-17c/d setelah "SSL terbaik" final, `rq1 gap`, analisis akhir.
+10. Push ke remote kapan pun pengguna memutuskan.
 
 ## Pertanyaan terbuka untuk pengguna atau dosen
 - ~~(2026-11-12) Kriteria "metode terbaik"~~ diputuskan 2026-11-13: opsi (a) + sensitivitas (adendum 2 RQ1, belum di-commit). Pilihan sensitivitas sementara: 100% DINO ResNet34, 10% ImageNet ResNet34 (rujukan); laporan `reports/rq1.md` diperbarui (kontras utama tidak berubah).

@@ -17,11 +17,20 @@
 #        ... SUPCON_W=<w> run_rq1.sh supcon12  RQ1-12 (SupCon + CE) + RQ1-13 (grade-distance negatives, M219)
 #        ... run_rq1.sh ssl0810                addendum 4: SimCLR (RQ1-08) and BYOL (RQ1-10) pre-training on the E1 pool,
 #                                              then 6 fine-tunes each; pre-training resumes from its checkpoint
+#        ... run_rq1.sh boneage07              addendum 6: RSNA bone-age regression pre-training (M005), then 6 fine-tunes
+#        ... run_rq1.sh norm1415               addendum 5: RQ1-14 normality model (M197 stage 1) + RQ1-15 gate on RQ0-01
 # Smoke test of ssl0810: also set PRE=<dir> PRETRAIN_ARGS="--epochs 1 --limit 300" so the pre-training stays small.
 # Smoke test: OUT=/tmp/rq1 bash scripts/run_rq1.sh all --limit 640 --epochs 1 --min-steps 0
 # MINUTES are rough: ResNet34 from E3, ViT-S from E2 medians.
 set -uo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="${QUEUE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# bash reads a script while it runs, so a queue runs a frozen copy: editing this file cannot reach a running queue
+if [[ -n "${1:-}" && -z "${QUEUE_ROOT:-}" ]]; then
+    mkdir -p "${ROOT}/runs/.queue_snapshots"
+    snap="${ROOT}/runs/.queue_snapshots/run_rq1_$1_$(date +%Y%m%d_%H%M%S).sh"
+    cp "$0" "${snap}"
+    QUEUE_ROOT="${ROOT}" exec bash "${snap}" "$@"
+fi
 cd "${ROOT}/code"
 STAGE="${1:-}"
 shift $(( $# > 0 ))
@@ -43,7 +52,7 @@ declare -A FLAGS=(
     [rq1-06]="--model vit_small_patch16_224 --init-from ${ENC}/e1_dino_vits/encoder.pt ${VIT}"
 )
 declare -A MINUTES=([resnet34_0.1]=7 [resnet34_1.0]=31 [vits_0.1]=10 [vits_1.0]=40 [supcon_0.1]=10 [supcon_1.0]=44
-                    [pretrain]=420)
+                    [pretrain]=270 [norm_0.1]=5 [norm_1.0]=15 [gate]=1 [boneage]=80)
 PRE="${PRE:-${ROOT}/runs/rq1_pretrain}"
 read -r -a PRETRAIN_EXTRA <<< "${PRETRAIN_ARGS:-}"
 
@@ -163,9 +172,8 @@ pretrain() {   # name, method
     echo "$(date '+%F %T') pre-trained ${name} in $(( (SECONDS - t0) / 60 )) min"
 }
 
-ssl_arm() {   # arm, tag, method
-    local arm=$1 tag=$2 method=$3 enc="${PRE}/${1}_${3}_resnet34/encoder.pt" draw seed
-    pretrain "${arm}_${method}_resnet34" "${method}" || return 1
+finetunes() {   # arm, tag, encoder: the 6 designs fine-tuned from one encoder
+    local arm=$1 tag=$2 enc=$3 draw seed
     for draw in 0 1 2; do
         # shellcheck disable=SC2046
         run "${arm}_${tag}_b2_f0.1_d${draw}_s42" "${MINUTES[resnet34_0.1]}" --model resnet34 --init-from "${enc}" \
@@ -178,9 +186,76 @@ ssl_arm() {   # arm, tag, method
     done
 }
 
+ssl_arm() {   # arm, tag, method
+    pretrain "${1}_${3}_resnet34" "${3}" || return 1
+    finetunes "$1" "$2" "${PRE}/${1}_${3}_resnet34/encoder.pt"
+}
+
 ssl0810() {
     ssl_arm rq1-08 resnet34_simclr simclr
     ssl_arm rq1-10 resnet34_byol byol
+}
+
+# Addendum 6: bone-age regression on the prepared RSNA images (ImageNet ResNet34, M005 recipe), then RQ1-07 fine-tunes.
+BONEAGE="${BONEAGE:-${ROOT}/data/external/rsna-bone-age/png512}"
+boneage07() {
+    local name=rq1-07_boneage_resnet34 dir="${PRE}/rq1-07_boneage_resnet34"
+    if [[ -n "${PLAN}" ]]; then
+        echo "rq1-07-pre $([[ -f "${dir}/done.json" ]] && echo 1 || echo 0) ${MINUTES[boneage]}"
+    elif [[ ! -f "${dir}/done.json" ]]; then
+        mkdir -p "${PRE}/logs"
+        echo "$(date '+%F %T') pre-training ${name}$([[ -f "${dir}/checkpoint.pt" ]] && echo ' (resume)')"
+        local t0=${SECONDS}
+        if ! uv run python -m ramscore.boneage pretrain --data "${BONEAGE}" --name "${name}" --out "${PRE}" --amp \
+            "${PRETRAIN_EXTRA[@]}" >> "${PRE}/logs/${name}.log" 2>&1; then
+            echo "FAILED pre-training ${name} (see ${PRE}/logs/${name}.log); rerun the script to resume" >&2
+            return 1
+        fi
+        (cd "${dir}" && sha256sum encoder.pt > encoder.sha256)
+        echo "$(date '+%F %T') pre-trained ${name} in $(( (SECONDS - t0) / 60 )) min"
+    fi
+    finetunes rq1-07 resnet34_boneage "${dir}/encoder.pt"
+}
+
+# Addendum 5: RQ1-14 trains on the grade-0 joints of the labelled training patients of each design; RQ1-15 gates the
+# RQ0-01 classifier of the same design with that score (no training). Both write the train.py run layout.
+norm_run() {   # name, minutes, then ramscore.normality arguments
+    local name=$1 minutes=$2
+    shift 2
+    if [[ -n "${PLAN}" ]]; then
+        echo "${name%%_*} $([[ -f "${OUT}/${name}/metrics.json" ]] && echo 1 || echo 0) ${minutes}"
+        return 0
+    fi
+    [[ -f "${OUT}/${name}/metrics.json" ]] && return 0
+    rm -rf "${OUT:?}/${name}"
+    echo "$(date '+%F %T') [$(compgen -G "${OUT}/rq1-*/metrics.json" | wc -l) done] ${name}"
+    local t0=${SECONDS}
+    if ! uv run python -m ramscore.normality "$@" --name "${name}" --out "${OUT}" "${EXTRA[@]}" \
+        > "${OUT}/logs/${name}.log" 2>&1; then
+        echo "FAILED ${name} (see ${OUT}/logs/${name}.log); rerun the script to retry" >&2
+        return 1
+    fi
+    echo "$(date '+%F %T') finished ${name} in $(( (SECONDS - t0) / 60 )) min"
+}
+
+norm_one() {   # fraction, draw, seed
+    local frac=$1 draw=$2 seed=$3 tag="b2_f$1_d$2_s$3"
+    local n14="rq1-14_resnet34_imagenet_fewsome_${tag}" ref="${ROOT}/runs/rq0/rq0-01_resnet34_${tag}"
+    # shellcheck disable=SC2046
+    norm_run "${n14}" "${MINUTES[norm_${frac}]}" train --amp $(design "${frac}" "${draw}" "${seed}") || return 1
+    if [[ -z "${PLAN}" && ! -f "${ref}/model_best.pt" ]]; then
+        echo "SKIPPED rq1-15 ${tag}: ${ref}/model_best.pt missing" >&2
+        return 1
+    fi
+    # shellcheck disable=SC2046
+    norm_run "rq1-15_resnet34_imagenet_gate_${tag}" "${MINUTES[gate]}" gate --normality "${OUT}/${n14}" \
+        --classifier "${ref}" $(design "${frac}" "${draw}" "${seed}")
+}
+
+norm1415() {
+    local draw seed
+    for draw in 0 1 2; do norm_one 0.1 "${draw}" 42; done
+    for seed in 42 1337 2026; do norm_one 1.0 0 "${seed}"; done
 }
 
 table() { awk '{ n[$1]++; d[$1] += $2; if (!$2) m[$1] += $3 } END { printf "%-12s %10s %10s\n", "arm", "runs done", "hours left"; for (a in n) printf "%-12s %5d/%-4d %10.1f\n", a, d[a], n[a], m[a] / 60 }' | sort; }
@@ -190,14 +265,14 @@ if [[ -z "${STAGE}" ]]; then
     LP_LR="${LP_LR:-x}"
     SUPCON_W="${SUPCON_W:-x}"
     echo "OUT=${OUT}  (hours are rough)"
-    { queue; tune17; lp17; tune12; supcon12; ssl0810; } | table
+    { queue; tune17; lp17; tune12; supcon12; ssl0810; norm1415; boneage07; } | table
     exit 0
 fi
 case "${STAGE}" in
-    all|tune17|tune12|ssl0810) ;;
+    all|tune17|tune12|ssl0810|norm1415|boneage07) ;;
     supcon12) [[ -n "${SUPCON_W:-}" ]] || { echo "supcon12 needs the weight chosen in addendum 3: SUPCON_W=<w> bash scripts/run_rq1.sh supcon12" >&2; exit 1; } ;;
     lp17) [[ -n "${LP_LR:-}" ]] || { echo "lp17 needs the lr chosen in addendum 1: LP_LR=<lr> bash scripts/run_rq1.sh lp17" >&2; exit 1; } ;;
-    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17, tune12, supcon12, ssl0810" >&2; exit 1 ;;
+    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17, tune12, supcon12, ssl0810, norm1415, boneage07" >&2; exit 1 ;;
 esac
 (cd "${ROOT}/artifacts" && sha256sum --quiet -c SHA256SUMS) || { echo "encoder checksums failed; queue not started" >&2; exit 1; }
 mkdir -p "${OUT}/logs"
@@ -210,5 +285,7 @@ case "${STAGE}" in
     tune12) tune12 ;;
     supcon12) supcon12 ;;
     ssl0810) ssl0810 ;;
+    norm1415) norm1415 ;;
+    boneage07) boneage07 ;;
 esac
 echo "$(date '+%F %T') RQ1 ${STAGE} finished: $(compgen -G "${OUT}/rq1-*/metrics.json" | wc -l) runs with metrics.json"

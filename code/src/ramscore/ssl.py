@@ -5,6 +5,8 @@
 - DINO (Caron et al., 2021): student/teacher self-distillation with multi-crop,
   centring and sharpening; works with any timm backbone. The core of DINOv2
   (Oquab et al., 2023) without its iBOT and KoLeo terms.
+- SimCLR (Chen et al., 2020): NT-Xent between two views, the other 2N - 2 views of the batch as negatives.
+- BYOL (Grill et al., 2020): online projector + predictor regress the EMA target's projection of the other view.
 - ChronoCon (Watzenboeck et al., 2026): Rank-N-Contrast-style loss where the
   negatives of a pair are the later (forward) or earlier (backward) visits of the
   same patient, side and ROI. Similarity is -L2 / tau with tau = 1, as in the
@@ -188,6 +190,76 @@ class DINO(nn.Module):
     @torch.no_grad()
     def update_teacher(self, momentum):
         for s, t in zip(self.student_parameters(), self.teacher_parameters()):
+            t.mul_(momentum).add_(s.detach(), alpha=1 - momentum)
+
+
+# ---------------------------------------------------------------- SimCLR and BYOL
+
+def mlp(in_dim, hidden, out_dim):
+    """Two-layer projector / predictor with BatchNorm (SimCLR and BYOL official code)."""
+    return nn.Sequential(nn.Linear(in_dim, hidden), nn.BatchNorm1d(hidden), nn.ReLU(inplace=True),
+                         nn.Linear(hidden, out_dim))
+
+
+def nt_xent(z, temperature=0.1):
+    """NT-Xent of SimCLR on 2N embeddings ordered [view 1 of 0..N-1, view 2 of 0..N-1]: each view's positive is the
+    other view of the same image, every other view in the batch is a negative."""
+    z = F.normalize(z.float(), dim=1)
+    n = z.shape[0] // 2
+    sim = (z @ z.T / temperature).masked_fill(torch.eye(2 * n, dtype=torch.bool, device=z.device), float('-inf'))
+    target = torch.cat([torch.arange(n, 2 * n), torch.arange(n)]).to(z.device)
+    return F.cross_entropy(sim, target)
+
+
+class SimCLR(nn.Module):
+    def __init__(self, name='resnet34', proj_dim=128, temperature=0.1):
+        super().__init__()
+        self.backbone = make_backbone(name)
+        nf = self.backbone.num_features
+        self.projector = mlp(nf, nf, proj_dim)
+        self.temperature = temperature
+
+    def forward(self, views):
+        return nt_xent(self.projector(self.backbone(torch.cat(views[:2]))), self.temperature)
+
+
+def byol_regression(p, z):
+    """2 - 2 cos(p, z) per sample, averaged (Grill et al., 2020, eq. 2); z is the target, no gradient."""
+    return (2 - 2 * F.cosine_similarity(p.float(), z.detach().float(), dim=-1)).mean()
+
+
+class BYOL(nn.Module):
+    def __init__(self, name='resnet34', hidden=4096, proj_dim=256):
+        super().__init__()
+        self.backbone = make_backbone(name)                          # online encoder: the one kept for fine-tuning
+        nf = self.backbone.num_features
+        self.projector = mlp(nf, hidden, proj_dim)
+        self.predictor = mlp(proj_dim, hidden, proj_dim)
+        # target stays in train mode like the online network (BatchNorm statistics of its own, as in DINO above)
+        self.target_backbone = copy.deepcopy(self.backbone)
+        self.target_projector = copy.deepcopy(self.projector)
+        for p in self.teacher_parameters():
+            p.requires_grad = False
+
+    def student_parameters(self):
+        return [*self.backbone.parameters(), *self.projector.parameters(), *self.predictor.parameters()]
+
+    def teacher_parameters(self):
+        return [*self.target_backbone.parameters(), *self.target_projector.parameters()]
+
+    def forward(self, views):
+        """Symmetric loss: the prediction from each view regresses the target projection of the other view."""
+        x = torch.cat(views[:2])
+        p1, p2 = self.predictor(self.projector(self.backbone(x))).chunk(2)
+        with torch.no_grad():
+            z1, z2 = self.target_projector(self.target_backbone(x)).chunk(2)
+        return byol_regression(p1, z2) + byol_regression(p2, z1)
+
+    @torch.no_grad()
+    def update_teacher(self, momentum):
+        for s, t in zip(self.backbone.parameters(), self.target_backbone.parameters()):
+            t.mul_(momentum).add_(s.detach(), alpha=1 - momentum)
+        for s, t in zip(self.projector.parameters(), self.target_projector.parameters()):
             t.mul_(momentum).add_(s.detach(), alpha=1 - momentum)
 
 

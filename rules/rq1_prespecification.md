@@ -201,3 +201,20 @@ Ditulis sebelum run RQ1-12/13 mana pun, termasuk run tuning. Keputusan pengguna 
 **Biaya (kasar).** 1 epoch pada 100% label diukur ±75 detik (RQ0 ResNet34: 54 detik), jadi ±1,4×. Tuning ±0,5 jam. RQ1-12 + RQ1-13: 12 run, ±5,4 jam.
 
 **Kode:** `train.py: --supcon-weight, --supcon-temp, --supcon-alpha, check_supcon_args(), supcon_step()`; `models.py: supcon_loss(), ProjectionHead, pooled_and_logits()`; `data.py: BEDataset.views`. Test: `tests/test_supcon.py`. Antrean: `scripts/run_rq1.sh tune12` dan `SUPCON_W=<λ> … supcon12`.
+
+## Adendum 4 (2026-11-13): resep pre-training RQ1-08 (SimCLR) dan RQ1-10 (BYOL)
+Ditulis sebelum pre-training atau run RQ1-08/10 mana pun. Kontras F1/F2 tidak berubah.
+
+**Prinsip:** resep disamakan dengan DINO ResNet34 E1 (RQ1-02), supaya perbedaan SimCLR/BYOL dari DINO hanya pada objektif SSL dan augmentasi lokal.
+- **Sama dengan E1 DINO ResNet34:** pool h1200 (train + val tanpa label, seperti E1), ResNet34 dari scratch (1 kanal), 100 epoch, AdamW dengan lr 5e-4 per 256 citra, cosine ke 1e-6, warmup 10 epoch, wd 0,04 → 0,4 (cosine), clip grad 3,0, AMP, seed 2026, satu pre-training per metode.
+- **Augmentasi:** dua global crop asimetris yang sama dengan DINO E1 (224 piksel, skala 0,4–1,0, flip, brightness/contrast; view 1 blur p = 1,0; view 2 blur p = 0,1 + solarize p = 0,2). Pasangan ini memang berasal dari BYOL. **Tanpa local crop** (DINO E1 memakai 6 local crop 96 piksel). Perbedaan ini dicatat di laporan.
+- **Batch:** 128 citra × 2 view, kira-kira setara biaya satu step DINO (64 × [2 × 224 + 6 × 96]).
+- **SimCLR (Chen dkk., 2020):** NT-Xent dengan suhu 0,1. Proyeksi MLP 512 → 512 (BN, ReLU) → 128. Negatif = 2N − 2 view lain di batch.
+- **BYOL (Grill dkk., 2020):** proyektor MLP 512 → 4096 (BN, ReLU) → 256, prediktor 256 → 4096 → 256, loss simetris 2 − 2·cos. Target EMA dengan momentum 0,996 → 1 (cosine), sama dengan teacher DINO E1. Encoder yang dipakai = jaringan online (sesuai paper).
+- **Penyimpangan dari paper asli** (dicatat di laporan): optimizer AdamW, bukan LARS; batch jauh lebih kecil (128 vs 4096); 100 epoch. Semua demi kesetaraan dengan E1 di satu GPU 12 GB.
+
+**Fine-tune:** resep RQ0-01 (ResNet34, balanced softmax, 50 epoch dan minimal 2.000 step, aug `base` di-seed, monitor val QWK), `--init-from <encoder.pt>` dengan kepala baru, 6 desain. Encoder = checkpoint epoch terakhir (seperti E1), sha256-nya disimpan di `encoder.sha256`.
+
+**Kode:** `ssl.py: SimCLR, BYOL, nt_xent(), byol_regression(), mlp()`; `pretrain.py: --method simclr|byol, --temperature`, `done.json` sebagai penanda selesai. Test: `tests/test_ssl_rq1.py`. Antrean: `scripts/run_rq1.sh ssl0810` (pre-training di `runs/rq1_pretrain/`, bisa di-resume dari checkpoint).
+
+**Biaya (kasar):** ±7 jam pre-training per metode (E1 DINO: ±7,3 jam), akan diukur ulang 1 epoch sebelum peluncuran, ditambah ±1,9 jam fine-tune per metode. Total ±18 jam.

@@ -3,6 +3,8 @@
   A3  --method mae  --model vit_small_patch16_224
   A4  --method dino --model resnet34 | vit_small_patch16_224
   A5  A3 or A4 + --chrono-weight 1 (ChronoCon on the longitudinal series)
+  RQ1-08 --method simclr --model resnet34;  RQ1-10 --method byol --model resnet34 (addendum 4: the E1 DINO ResNet34
+         recipe, with its two asymmetric global crops and no local crops, so that only the objective differs)
 
 Writes runs/<name>/: args.json, history.csv, checkpoint.pt (full state, for
 --resume) and encoder.pt ({'model': backbone state dict}; the DINO teacher), plus
@@ -24,14 +26,18 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from .pool import W600_ROOT, GroupBatchSampler, PoolDataset, chrono_groups, load_pool
-from .ssl import DINO, MAE, Crops, MultiCrop, chronocon_loss, cosine_schedule
+from .ssl import BYOL, DINO, MAE, Crops, MultiCrop, SimCLR, chronocon_loss, cosine_schedule
 from .train import seed_everything
 
 # Per-method defaults (MAE: He et al., 2022; DINO: Caron et al., 2021, scaled to one 12 GB GPU)
 DEFAULTS = {
     'mae': dict(epochs=400, batch_size=128, lr=1.5e-4, weight_decay=0.05, weight_decay_end=0.05, warmup_epochs=20),
     'dino': dict(epochs=100, batch_size=64, lr=5e-4, weight_decay=0.04, weight_decay_end=0.4, warmup_epochs=10),
+    # RQ1-08/10 (addendum 4): the DINO optimiser recipe; batch 128 x 2 views costs about one DINO step (2 x 224 + 6 x 96)
+    'simclr': dict(epochs=100, batch_size=128, lr=5e-4, weight_decay=0.04, weight_decay_end=0.4, warmup_epochs=10),
+    'byol': dict(epochs=100, batch_size=128, lr=5e-4, weight_decay=0.04, weight_decay_end=0.4, warmup_epochs=10),
 }
+EMA = ('dino', 'byol')     # methods with a momentum teacher / target
 
 
 def get_args(argv=None):
@@ -55,6 +61,7 @@ def get_args(argv=None):
     p.add_argument('--teacher-temp', type=float, default=0.04, help='DINO')
     p.add_argument('--momentum', type=float, default=0.996, help='DINO teacher EMA, cosine to 1')
     p.add_argument('--freeze-last-epochs', type=int, default=1, help='DINO: keep the prototype layer fixed')
+    p.add_argument('--temperature', type=float, default=0.1, help='SimCLR NT-Xent temperature')
     p.add_argument('--chrono-weight', type=float, default=0.0, help='ChronoCon weight; 0 = off (A3/A4), >0 = A5')
     p.add_argument('--chrono-groups', type=int, default=8, help='Series per ChronoCon batch')
     p.add_argument('--chrono-max-visits', type=int, default=4)
@@ -66,6 +73,8 @@ def get_args(argv=None):
     p.add_argument('--resume', action='store_true', help='Continue from <out>/<name>/checkpoint.pt')
     p.add_argument('--limit', type=int, default=0, help='Use only the first patients, about N pool images (smoke test)')
     args = p.parse_args(argv)
+    if args.chrono_weight and args.method not in ('mae', 'dino'):
+        p.error('--chrono-weight is defined for mae and dino only')
     for k, v in DEFAULTS[args.method].items():
         if getattr(args, k) is None:
             setattr(args, k, v)
@@ -107,7 +116,8 @@ def main(argv=None):
                 break
             records += by_patient[patient]
     t0 = time.time()
-    ds = PoolDataset(records, MultiCrop(args.n_local) if args.method == 'dino' else Crops(1))
+    views = {'dino': MultiCrop(args.n_local), 'mae': Crops(1)}.get(args.method, MultiCrop(0))   # SimCLR/BYOL: 2 global
+    ds = PoolDataset(records, views)
     print(f'Pool: {len(ds)} ROIs from {len({r["patient"] for r in records})} patients, loaded in {time.time() - t0:.0f}s')
     g = torch.Generator().manual_seed(args.seed)
     loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.workers,
@@ -126,8 +136,10 @@ def main(argv=None):
         chrono = forever(DataLoader(cds, batch_sampler=sampler, num_workers=min(args.workers, 2), pin_memory=True))
         print(f'ChronoCon: {len(groups)} series from {len({records[i[0]]["patient"] for i in groups})} patients')
 
-    model = (MAE(args.model, args.mask_ratio) if args.method == 'mae' else DINO(args.model, args.out_dim)).to(device)
-    student = list(model.parameters()) if args.method == 'mae' else model.student_parameters()
+    model = {'mae': lambda: MAE(args.model, args.mask_ratio), 'dino': lambda: DINO(args.model, args.out_dim),
+             'simclr': lambda: SimCLR(args.model, temperature=args.temperature),
+             'byol': lambda: BYOL(args.model)}[args.method]().to(device)
+    student = model.student_parameters() if args.method in EMA else list(model.parameters())
     opt = torch.optim.AdamW(param_groups(student))
     scaler = torch.amp.GradScaler(enabled=args.amp)
     steps = len(loader)
@@ -157,7 +169,8 @@ def main(argv=None):
                 group['weight_decay'] = wd_at[step] if group['decay'] else 0.0
             views = [v.to(device, non_blocking=True) for v in batch['views']]
             with torch.autocast(device.type, enabled=args.amp):
-                loss = model(views[0]) if args.method == 'mae' else model(views, args.teacher_temp)
+                loss = (model(views[0]) if args.method == 'mae' else model(views, args.teacher_temp)
+                        if args.method == 'dino' else model(views))
                 ssl_losses.append(loss.item())
                 if chrono is not None:
                     cb = next(chrono)
@@ -176,7 +189,7 @@ def main(argv=None):
                 model.head.last.grad = None
             scaler.step(opt)
             scaler.update()
-            if args.method == 'dino':
+            if args.method in EMA:
                 model.update_teacher(momentum_at[step])
         history.append({'epoch': epoch, 'ssl_loss': float(np.mean(ssl_losses)),
                         'chrono_loss': float(np.mean(chrono_losses)) if chrono_losses else None,
@@ -193,6 +206,7 @@ def main(argv=None):
             torch.save(enc_state, run_dir / f'encoder_ep{epoch + 1}.pt')
         torch.save({'model': model.state_dict(), 'opt': opt.state_dict(), 'scaler': scaler.state_dict(),
                     'epoch': epoch, 'history': history}, ckpt_path)
+    (run_dir / 'done.json').write_text(json.dumps({'epochs': args.epochs}))   # queue marker: encoder.pt is final
 
 
 if __name__ == '__main__':

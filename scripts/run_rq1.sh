@@ -15,6 +15,9 @@
 #        ... LP_LR=<lr> run_rq1.sh lp17        RQ1-17a (LP) + RQ1-17b (LP-FT), ImageNet ResNet34
 #        ... run_rq1.sh tune12                 addendum 3: 3 SupCon-weight runs (pick on validation)
 #        ... SUPCON_W=<w> run_rq1.sh supcon12  RQ1-12 (SupCon + CE) + RQ1-13 (grade-distance negatives, M219)
+#        ... run_rq1.sh ssl0810                addendum 4: SimCLR (RQ1-08) and BYOL (RQ1-10) pre-training on the E1 pool,
+#                                              then 6 fine-tunes each; pre-training resumes from its checkpoint
+# Smoke test of ssl0810: also set PRE=<dir> PRETRAIN_ARGS="--epochs 1 --limit 300" so the pre-training stays small.
 # Smoke test: OUT=/tmp/rq1 bash scripts/run_rq1.sh all --limit 640 --epochs 1 --min-steps 0
 # MINUTES are rough: ResNet34 from E3, ViT-S from E2 medians.
 set -uo pipefail
@@ -39,7 +42,10 @@ declare -A FLAGS=(
     [rq1-05]="--model vit_small_patch16_224 --init-from ${ENC}/e1_mae_vits/encoder.pt ${VIT}"
     [rq1-06]="--model vit_small_patch16_224 --init-from ${ENC}/e1_dino_vits/encoder.pt ${VIT}"
 )
-declare -A MINUTES=([resnet34_0.1]=7 [resnet34_1.0]=31 [vits_0.1]=10 [vits_1.0]=40 [supcon_0.1]=10 [supcon_1.0]=44)
+declare -A MINUTES=([resnet34_0.1]=7 [resnet34_1.0]=31 [vits_0.1]=10 [vits_1.0]=40 [supcon_0.1]=10 [supcon_1.0]=44
+                    [pretrain]=420)
+PRE="${PRE:-${ROOT}/runs/rq1_pretrain}"
+read -r -a PRETRAIN_EXTRA <<< "${PRETRAIN_ARGS:-}"
 
 PLAN=""
 run() {   # name, minutes, then the arm's train.py flags; a failure is reported and the queue goes on
@@ -136,6 +142,47 @@ supcon12() {
     for seed in 42 1337 2026; do supcon12_one 1.0 0 "${seed}"; done
 }
 
+# Addendum 4: SimCLR and BYOL with the E1 DINO ResNet34 recipe (pool h1200, from scratch, 100 epochs, AdamW lr 5e-4 per
+# 256, wd 0.04 -> 0.4, warm-up 10, seed 2026), batch 128, the two asymmetric DINO global crops; encoder = online network.
+pretrain() {   # name, method
+    local name=$1 method=$2 dir="${PRE}/$1"
+    if [[ -n "${PLAN}" ]]; then
+        echo "${name%%_*}-pre $([[ -f "${dir}/done.json" ]] && echo 1 || echo 0) ${MINUTES[pretrain]}"
+        return 0
+    fi
+    [[ -f "${dir}/done.json" ]] && return 0
+    mkdir -p "${PRE}/logs"
+    echo "$(date '+%F %T') pre-training ${name}$([[ -f "${dir}/checkpoint.pt" ]] && echo ' (resume)')"
+    local t0=${SECONDS}
+    if ! uv run python -m ramscore.pretrain --name "${name}" --out "${PRE}" --method "${method}" --model resnet34 --amp \
+        --resume "${PRETRAIN_EXTRA[@]}" >> "${PRE}/logs/${name}.log" 2>&1; then
+        echo "FAILED pre-training ${name} (see ${PRE}/logs/${name}.log); rerun the script to resume" >&2
+        return 1
+    fi
+    (cd "${dir}" && sha256sum encoder.pt > encoder.sha256)
+    echo "$(date '+%F %T') pre-trained ${name} in $(( (SECONDS - t0) / 60 )) min"
+}
+
+ssl_arm() {   # arm, tag, method
+    local arm=$1 tag=$2 method=$3 enc="${PRE}/${1}_${3}_resnet34/encoder.pt" draw seed
+    pretrain "${arm}_${method}_resnet34" "${method}" || return 1
+    for draw in 0 1 2; do
+        # shellcheck disable=SC2046
+        run "${arm}_${tag}_b2_f0.1_d${draw}_s42" "${MINUTES[resnet34_0.1]}" --model resnet34 --init-from "${enc}" \
+            $(design 0.1 "${draw}" 42)
+    done
+    for seed in 42 1337 2026; do
+        # shellcheck disable=SC2046
+        run "${arm}_${tag}_b2_f1.0_d0_s${seed}" "${MINUTES[resnet34_1.0]}" --model resnet34 --init-from "${enc}" \
+            $(design 1.0 0 "${seed}")
+    done
+}
+
+ssl0810() {
+    ssl_arm rq1-08 resnet34_simclr simclr
+    ssl_arm rq1-10 resnet34_byol byol
+}
+
 table() { awk '{ n[$1]++; d[$1] += $2; if (!$2) m[$1] += $3 } END { printf "%-12s %10s %10s\n", "arm", "runs done", "hours left"; for (a in n) printf "%-12s %5d/%-4d %10.1f\n", a, d[a], n[a], m[a] / 60 }' | sort; }
 
 if [[ -z "${STAGE}" ]]; then
@@ -143,14 +190,14 @@ if [[ -z "${STAGE}" ]]; then
     LP_LR="${LP_LR:-x}"
     SUPCON_W="${SUPCON_W:-x}"
     echo "OUT=${OUT}  (hours are rough)"
-    { queue; tune17; lp17; tune12; supcon12; } | table
+    { queue; tune17; lp17; tune12; supcon12; ssl0810; } | table
     exit 0
 fi
 case "${STAGE}" in
-    all|tune17|tune12) ;;
+    all|tune17|tune12|ssl0810) ;;
     supcon12) [[ -n "${SUPCON_W:-}" ]] || { echo "supcon12 needs the weight chosen in addendum 3: SUPCON_W=<w> bash scripts/run_rq1.sh supcon12" >&2; exit 1; } ;;
     lp17) [[ -n "${LP_LR:-}" ]] || { echo "lp17 needs the lr chosen in addendum 1: LP_LR=<lr> bash scripts/run_rq1.sh lp17" >&2; exit 1; } ;;
-    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17, tune12, supcon12" >&2; exit 1 ;;
+    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17, tune12, supcon12, ssl0810" >&2; exit 1 ;;
 esac
 (cd "${ROOT}/artifacts" && sha256sum --quiet -c SHA256SUMS) || { echo "encoder checksums failed; queue not started" >&2; exit 1; }
 mkdir -p "${OUT}/logs"
@@ -162,5 +209,6 @@ case "${STAGE}" in
     lp17) lp17 ;;
     tune12) tune12 ;;
     supcon12) supcon12 ;;
+    ssl0810) ssl0810 ;;
 esac
 echo "$(date '+%F %T') RQ1 ${STAGE} finished: $(compgen -G "${OUT}/rq1-*/metrics.json" | wc -l) runs with metrics.json"

@@ -13,6 +13,7 @@
 #        setsid nohup bash scripts/run_rq1.sh all >> runs/rq1.log 2>&1 < /dev/null &      stage 1 (RQ1-01..06)
 #        ... run_rq1.sh tune17                 addendum 1: 3 linear-probe lr runs (pick on validation)
 #        ... LP_LR=<lr> run_rq1.sh lp17        RQ1-17a (LP) + RQ1-17b (LP-FT), ImageNet ResNet34
+#        ... LP_LR=<lr> SSL_ARM=<arm> run_rq1.sh lp17ssl   RQ1-17c (LP) + RQ1-17d (LP-FT) from "SSL terbaik"
 #        ... run_rq1.sh tune12                 addendum 3: 3 SupCon-weight runs (pick on validation)
 #        ... SUPCON_W=<w> run_rq1.sh supcon12  RQ1-12 (SupCon + CE) + RQ1-13 (grade-distance negatives, M219)
 #        ... run_rq1.sh ssl0810                addendum 4: SimCLR (RQ1-08) and BYOL (RQ1-10) pre-training on the E1 pool,
@@ -54,7 +55,7 @@ declare -A FLAGS=(
 )
 declare -A MINUTES=([resnet34_0.1]=7 [resnet34_1.0]=31 [vits_0.1]=10 [vits_1.0]=40 [supcon_0.1]=10 [supcon_1.0]=44
                     [pretrain]=270 [norm_0.1]=5 [norm_1.0]=15 [gate]=1 [boneage]=80
-                    [vitl_lp_0.1]=15 [vitl_lp_1.0]=60 [vitl_0.1]=45 [vitl_1.0]=200)   # ViT-L: not measured yet
+                    [vitl_lp_0.1]=48 [vitl_lp_1.0]=120 [vitl_0.1]=72 [vitl_1.0]=372)   # ViT-L: 1 epoch measured 2026-11-13 (addendum 7)
 PRE="${PRE:-${ROOT}/runs/rq1_pretrain}"
 read -r -a PRETRAIN_EXTRA <<< "${PRETRAIN_ARGS:-}"
 
@@ -105,19 +106,33 @@ tune17() {
     done
 }
 
-lp17_one() {   # fraction, draw, seed
-    local frac=$1 draw=$2 seed=$3 tag="b2_f$1_d$2_s$3"
-    local lp="rq1-17a_resnet34_imagenet_lp_${tag}"
-    # shellcheck disable=SC2046
-    run "${lp}" "${MINUTES[resnet34_${frac}]}" --model resnet34 --pretrained --freeze-backbone --lr "${LP_LR}" \
+lp_pair() {   # LP arm, LP-FT arm, init name, init flags (one string), fraction, draw, seed
+    local lparm=$1 ftarm=$2 init=$3 initflags=$4 frac=$5 draw=$6 seed=$7 tag="b2_f$5_d$6_s$7"
+    local lp="${lparm}_resnet34_${init}_lp_${tag}"
+    # shellcheck disable=SC2046,SC2086
+    run "${lp}" "${MINUTES[resnet34_${frac}]}" --model resnet34 ${initflags} --freeze-backbone --lr "${LP_LR}" \
         $(design "${frac}" "${draw}" "${seed}") || return 1
     if [[ -z "${PLAN}" && ! -f "${OUT}/${lp}/model_best.pt" ]]; then
-        echo "SKIPPED rq1-17b ${tag}: ${lp}/model_best.pt missing" >&2
+        echo "SKIPPED ${ftarm} ${tag}: ${lp}/model_best.pt missing" >&2
         return 1
     fi
     # shellcheck disable=SC2046
-    run "rq1-17b_resnet34_imagenet_lpft_${tag}" "${MINUTES[resnet34_${frac}]}" --model resnet34 \
+    run "${ftarm}_resnet34_${init}_lpft_${tag}" "${MINUTES[resnet34_${frac}]}" --model resnet34 \
         --init-from "${OUT}/${lp}/model_best.pt" --keep-head $(design "${frac}" "${draw}" "${seed}")
+}
+
+lp17_one() { lp_pair rq1-17a rq1-17b imagenet --pretrained "$@"; }   # fraction, draw, seed
+
+# RQ1-17c/d: the same LP and LP-FT from "SSL terbaik" (rules: highest mean validation BACC4 over the 6 runs among
+# RQ1-02/03/05/06/08/10, computed by rq1.select; 2026-11-13: RQ1-02 DINO ResNet34). Only the ResNet34 E1 encoders
+# are wired here; a ViT-S or a new-pretraining winner would need its own flags.
+declare -A SSL_INIT=([rq1-02]="dino ${ENC}/e1_dino_resnet34/encoder.pt"
+                     [rq1-03]="dinochrono ${ENC}/e1_dinochrono_resnet34/encoder.pt")
+lp17ssl() {
+    local draw seed init enc
+    read -r init enc <<< "${SSL_INIT[${SSL_ARM}]}"
+    for draw in 0 1 2; do lp_pair rq1-17c rq1-17d "${init}" "--init-from ${enc}" 0.1 "${draw}" 42; done
+    for seed in 42 1337 2026; do lp_pair rq1-17c rq1-17d "${init}" "--init-from ${enc}" 1.0 0 "${seed}"; done
 }
 
 lp17() {
@@ -285,15 +300,17 @@ if [[ -z "${STAGE}" ]]; then
     PLAN=1
     LP_LR="${LP_LR:-x}"
     SUPCON_W="${SUPCON_W:-x}"
+    SSL_ARM="${SSL_ARM:-rq1-02}"
     echo "OUT=${OUT}  (hours are rough)"
-    { queue; tune17; lp17; tune12; supcon12; ssl0810; norm1415; boneage07; skelex18; } | table
+    { queue; tune17; lp17; lp17ssl; tune12; supcon12; ssl0810; norm1415; boneage07; skelex18; } | table
     exit 0
 fi
 case "${STAGE}" in
     all|tune17|tune12|ssl0810|norm1415|boneage07|skelex18) ;;
     supcon12) [[ -n "${SUPCON_W:-}" ]] || { echo "supcon12 needs the weight chosen in addendum 3: SUPCON_W=<w> bash scripts/run_rq1.sh supcon12" >&2; exit 1; } ;;
+    lp17ssl) [[ -n "${LP_LR:-}" && -n "${SSL_INIT[${SSL_ARM:-none}]:-}" ]] || { echo "lp17ssl needs LP_LR=<lr> and SSL_ARM=rq1-02|rq1-03 (the SSL arm chosen on validation)" >&2; exit 1; } ;;
     lp17) [[ -n "${LP_LR:-}" ]] || { echo "lp17 needs the lr chosen in addendum 1: LP_LR=<lr> bash scripts/run_rq1.sh lp17" >&2; exit 1; } ;;
-    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17, tune12, supcon12, ssl0810, norm1415, boneage07, skelex18" >&2; exit 1 ;;
+    *) echo "unknown stage ${STAGE}; use: all (stage 1), tune17, lp17, lp17ssl, tune12, supcon12, ssl0810, norm1415, boneage07, skelex18" >&2; exit 1 ;;
 esac
 (cd "${ROOT}/artifacts" && sha256sum --quiet -c SHA256SUMS) || { echo "encoder checksums failed; queue not started" >&2; exit 1; }
 mkdir -p "${OUT}/logs"
@@ -303,6 +320,7 @@ case "${STAGE}" in
     all) queue ;;
     tune17) tune17 ;;
     lp17) lp17 ;;
+    lp17ssl) lp17ssl ;;
     tune12) tune12 ;;
     supcon12) supcon12 ;;
     ssl0810) ssl0810 ;;
